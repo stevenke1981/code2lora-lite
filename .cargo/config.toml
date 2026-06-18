@@ -1,0 +1,8 @@
+# code2lora-lite Cargo config
+#
+# CUDA + VS 2025 compatibility:
+# VS 2025 (MSVC 19.50) is newer than CUDA 12.8's supported range (VS 2017-2022).
+# Setting NVCC_CCBIN makes cudaforge pass both -allow-unsupported-compiler and -ccbin.
+# Adjust the path if your MSVC version differs.
+[env]
+NVCC_CCBIN = "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\HostX64\\x64"
