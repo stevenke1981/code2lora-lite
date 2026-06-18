@@ -22,9 +22,9 @@ pub fn adapt(repo_path: &Path, adapter_output_path: &Path, device: &Device) -> R
     let emb = encoder.embed_repo(repo_path)?;
     let emb_tensor = emb.to_tensor(device)?;
 
-    let lora_weights = hn.forward(&emb_tensor)?;
-    info!("LoRA adapter generated: q={:?}, k={:?}, v={:?}", 
-        lora_weights.q.0.shape(), lora_weights.k.0.shape(), lora_weights.v.0.shape());
+    let all_lora = hn.forward_all(&emb_tensor)?;
+    info!("LoRA adapter generated: {} layers, q shape {:?} per layer", 
+        all_lora.len(), all_lora[0].q.0.shape());
 
     // Save via VarMap
     hn.save(adapter_output_path)?;
@@ -42,8 +42,8 @@ pub fn complete(
     info!("Loading adapter from {adapter_path:?}");
     let device = Device::Cpu;
 
-    let mut base_model = Code2LoRAModel::new(&device, DType::F32)?;
     let hn_config = HypernetworkConfig::default();
+    let mut base_model = Code2LoRAModel::new(&device, DType::F32, &hn_config)?;
     let mut varmap = candle_nn::VarMap::new();
 
     // Load adapter via candle_core safetensors
@@ -58,7 +58,7 @@ pub fn complete(
     let emb = encoder.embed_repo(repo_path)?;
     let emb_tensor = emb.to_tensor(&device)?;
 
-    base_model.inject_lora(&hn, &emb_tensor)?;
+    base_model.inject_lora_from_hn(&hn, &emb_tensor)?;
 
     // Generate assertion
     let prompt: Vec<u32> = (1..=50).collect();

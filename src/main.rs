@@ -8,6 +8,7 @@ mod config;
 mod dataset;
 mod hypernetwork;
 mod infer;
+mod qwen2_lora;
 mod repo_encoder;
 mod trainer;
 
@@ -22,7 +23,7 @@ struct Cli {
 enum Commands {
     /// Train the hypernetwork
     Train {
-        /// Path to the training dataset
+        /// Path to the training dataset (directory of .txt or .py files)
         #[arg(short, long, default_value = "data")]
         data_dir: String,
         /// Output directory for checkpoints
@@ -34,6 +35,9 @@ enum Commands {
         /// Learning rate
         #[arg(short, long, default_value_t = 1e-4)]
         lr: f64,
+        /// Batch size
+        #[arg(short, long, default_value_t = 4)]
+        batch_size: usize,
     },
     /// Generate LoRA adapter for a repo
     Adapt {
@@ -71,24 +75,46 @@ fn main() -> Result<()> {
     info!("Using device: {device:?}");
 
     match cli.command {
-        Commands::Train { data_dir, output, epochs, lr } => {
+        Commands::Train { data_dir, output, epochs, lr, batch_size } => {
+            let hn_config = config::HypernetworkConfig::default();
+
             let train_config = config::TrainConfig {
                 rank: 8,
                 base_model: "Qwen/Qwen2.5-Coder-0.5B".into(),
-                data_dir,
+                data_dir: data_dir.clone(),
                 output,
                 epochs,
                 lr,
+                batch_size,
                 seq_len: 2048,
                 cache_dir: "cache".into(),
                 cr_holdout: 0.2,
             };
-            let hn_config = config::HypernetworkConfig::default();
+
+            // Load base model (frozen Qwen2) with tokenizer
+            let dtype = candle_core::DType::F32;
+            let base_model = base_llm::Code2LoRAModel::new(&device, dtype, &hn_config)?;
+            info!("Base model loaded");
+
+            // Create hypernetwork (trainable)
             let varmap = candle_nn::VarMap::new();
-            let vb = candle_nn::VarBuilder::from_varmap(&varmap, candle_core::DType::F32, &device);
+            let vb = candle_nn::VarBuilder::from_varmap(&varmap, dtype, &device);
             let hn = hypernetwork::Code2LoRAHead::new(vb, &hn_config, &varmap)?;
-            let mut trainer = trainer::Trainer::new(hn, varmap, train_config, device);
-            let dataset = dataset::CodeDataset::new();
+            info!("Hypernetwork created");
+
+            // Create trainer
+            let mut trainer = trainer::Trainer::new(hn, base_model, varmap, train_config, device);
+
+            // Load dataset
+            let dataset_path = std::path::PathBuf::from(&data_dir);
+            let dataset = if dataset_path.exists() {
+                let dummy_device = candle_core::Device::Cpu;
+                dataset::CodeDataset::load_from_dir(&dataset_path, &dummy_device)?
+            } else {
+                info!("Data directory {data_dir:?} not found; using empty dataset");
+                dataset::CodeDataset::new()
+            };
+
             trainer.train(&dataset)?;
         }
         Commands::Adapt { repo_path, output } => {
