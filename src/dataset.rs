@@ -122,6 +122,11 @@ pub struct CodeDataset {
 }
 
 impl CodeDataset {
+    /// Create from an existing Vec of CodeExamples (public constructor).
+    pub fn from_examples(examples: Vec<CodeExample>) -> Self {
+        Self { examples }
+    }
+
     /// Load from a directory of JSONL records or .txt/.py files.
     ///
     /// JSONL is the real-data path: convert HF Parquet files first with

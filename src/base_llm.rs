@@ -485,9 +485,6 @@ mod tests {
         // ── 1. Load real Qwen2.5-Coder-0.5B model ──
         eprintln!("P6: loading Qwen2.5-Coder-0.5B…");
         let start = Instant::now();
-        // Build HN config that matches the model's actual dimensions from HF
-        // (HypernetworkConfig::default() now has the correct values, but we
-        //  also demonstrate how to derive them dynamically from the model.)
         let hn_cfg = HypernetworkConfig {
             hidden_dim: 384,
             rank: 8,
@@ -540,6 +537,80 @@ mod tests {
 
         // ── 5. Cleanup ──
         std::fs::remove_dir_all("p6_checkpoints").ok();
+        Ok(())
+    }
+
+    /// ─── P7: Train on a tiny slice of real RepoPeftBench JSONL ───
+    ///
+    /// Requires:
+    ///   - `CODE2LORA_DATA_DIR` env var pointing to a prepared data/repopeftbench/ directory
+    ///     (train.jsonl must exist with valid 768-dim repo embeddings)
+    ///   - HF Hub access for Qwen2.5-Coder-0.5B download
+    ///   - GPU (CUDA)
+    #[test]
+    #[ignore = "Requires prepared RepoPeftBench JSONL + HF model download + GPU"]
+    fn test_p7_repopeftbench_tiny_train() -> Result<()> {
+        use crate::config::TrainConfig;
+        use crate::trainer::Trainer;
+        use candle_core::DType;
+        use candle_nn::VarMap;
+
+        let data_dir = std::env::var("CODE2LORA_DATA_DIR")
+            .unwrap_or_else(|_| "data/repopeftbench".to_string());
+        let device = Device::cuda_if_available(0)?;
+        info!("P7: device={device:?}, data_dir={data_dir}");
+
+        // Load first 16 rows from train.jsonl via load_jsonl
+        let dataset_path = std::path::PathBuf::from(&data_dir).join("train.jsonl");
+        anyhow::ensure!(
+            dataset_path.exists(),
+            "train.jsonl not found at {dataset_path:?}"
+        );
+
+        let all_examples = crate::dataset::CodeDataset::load_jsonl(&dataset_path)?;
+        anyhow::ensure!(!all_examples.is_empty(), "train.jsonl is empty");
+
+        // Take first 16 examples for a quick smoke test
+        let mut subset = all_examples;
+        subset.truncate(16);
+        let dataset = crate::dataset::CodeDataset::from_examples(subset);
+        let summary = dataset.summary();
+        info!(
+            "P7: dataset loaded: repos={}, examples={}",
+            summary.repo_count,
+            dataset.len()
+        );
+
+        // Load real Qwen2.5-Coder-0.5B + hypernetwork
+        let hn_cfg = HypernetworkConfig {
+            hidden_dim: 384,
+            rank: 8,
+            ..Default::default()
+        };
+        let qwen = Code2LoRAModel::new(&device, DType::F32, &hn_cfg)?;
+
+        let hn_varmap = VarMap::new();
+        let hn_vb = VarBuilder::from_varmap(&hn_varmap, DType::F32, &device);
+        let hn = Code2LoRAHead::new(hn_vb, &hn_cfg, &hn_varmap)?;
+
+        let train_cfg = TrainConfig {
+            data_dir: data_dir.clone(),
+            base_model: "Qwen/Qwen2.5-Coder-0.5B".into(),
+            output: "p7_checkpoints".into(),
+            rank: hn_cfg.rank,
+            epochs: 3,
+            lr: 1e-4,
+            batch_size: 2,
+            seq_len: 2048,
+            cache_dir: "cache".into(),
+            cr_holdout: 0.2,
+        };
+        std::fs::create_dir_all("p7_checkpoints")?;
+        let mut trainer = Trainer::new(hn, qwen, hn_varmap, train_cfg, device);
+        trainer.train(&dataset)?;
+        std::fs::remove_dir_all("p7_checkpoints").ok();
+
+        info!("P7: tiny real-data training completed successfully");
         Ok(())
     }
 
