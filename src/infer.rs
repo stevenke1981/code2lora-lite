@@ -6,7 +6,7 @@ use std::path::Path;
 
 use crate::base_llm::Code2LoRAModel;
 use crate::config::HypernetworkConfig;
-use crate::hypernetwork::Code2LoRAHead;
+use crate::hypernetwork::{load_lora_layers, save_lora_layers, Code2LoRAHead};
 use crate::repo_encoder::RepoEncoder;
 
 /// Adapt: encode repo → generate LoRA adapter → save to file.
@@ -29,43 +29,43 @@ pub fn adapt(repo_path: &Path, adapter_output_path: &Path, device: &Device) -> R
         all_lora[0].q.0.shape()
     );
 
-    // Save via VarMap
-    hn.save(adapter_output_path)?;
+    save_lora_layers(&all_lora, adapter_output_path)?;
     info!("Adapter saved to {adapter_output_path:?}");
     Ok(())
 }
 
 /// Complete: load adapters and generate assertion.
 pub fn complete(
-    repo_path: &Path,
+    _repo_path: &Path,
     adapter_path: &Path,
     output_path: &Path,
-    _device: &Device,
+    device: &Device,
+) -> Result<()> {
+    complete_with_max_new_tokens(adapter_path, output_path, device, 128)
+}
+
+fn complete_with_max_new_tokens(
+    adapter_path: &Path,
+    output_path: &Path,
+    device: &Device,
+    max_new_tokens: usize,
 ) -> Result<()> {
     info!("Loading adapter from {adapter_path:?}");
-    let device = Device::Cpu;
 
     let hn_config = HypernetworkConfig::default();
-    let mut base_model = Code2LoRAModel::new(&device, DType::F32, &hn_config)?;
-    let mut varmap = candle_nn::VarMap::new();
-
-    // Load adapter via candle_core safetensors
-    let tensor_map = candle_core::safetensors::load(adapter_path, &device)?;
-    let pairs: Vec<(String, candle_core::Tensor)> = tensor_map.into_iter().collect();
-    varmap.set(pairs.into_iter())?;
-
-    let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
-    let hn = Code2LoRAHead::new(vb, &hn_config, &varmap)?;
-
-    let encoder = RepoEncoder::new(&device)?;
-    let emb = encoder.embed_repo_cached(repo_path, Path::new(".cache/embeddings"))?;
-    let emb_tensor = emb.to_tensor(&device)?;
-
-    base_model.inject_lora_from_hn(&hn, &emb_tensor)?;
+    let mut base_model = Code2LoRAModel::new(device, DType::F32, &hn_config)?;
+    let all_lora = load_lora_layers(adapter_path, device)?;
+    anyhow::ensure!(
+        all_lora.len() == hn_config.num_layers,
+        "Adapter layer count mismatch: expected {}, got {}",
+        hn_config.num_layers,
+        all_lora.len()
+    );
+    base_model.inject_lora(&all_lora);
 
     // Generate assertion
     let prompt: Vec<u32> = (1..=50).collect();
-    let result = base_model.generate(&prompt, 128)?;
+    let result = base_model.generate(&prompt, max_new_tokens)?;
     let output_text = format!(
         "Generated {} tokens: {:?}",
         result.len(),
@@ -85,4 +85,39 @@ pub fn encode(repo_path: &Path, output_path: &Path, device: &Device) -> Result<(
     emb.save(output_path)?;
     info!("Embedding saved to {output_path:?}");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "Requires HF downloads for MiniLM + Qwen2.5-Coder and may take several minutes"]
+    fn test_p7_full_end_to_end_real_inference() -> Result<()> {
+        let root = std::env::temp_dir().join(format!("code2lora-p7-e2e-{}", std::process::id()));
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&repo)?;
+        std::fs::write(
+            repo.join("calculator.py"),
+            "def add(a, b):\n    return a + b\n\n\ndef test_add():\n    assert add(2, 3) ==",
+        )?;
+
+        let device = Device::cuda_if_available(0)?;
+        let embedding_path = root.join("repo_embedding.embed");
+        let adapter_path = root.join("adapter.safetensors");
+        let output_path = root.join("assertion.txt");
+
+        encode(&repo, &embedding_path, &device)?;
+        adapt(&repo, &adapter_path, &device)?;
+        complete_with_max_new_tokens(&adapter_path, &output_path, &device, 4)?;
+
+        let output = std::fs::read_to_string(&output_path)?;
+        assert!(embedding_path.exists());
+        assert!(adapter_path.exists());
+        assert!(output_path.exists());
+        std::fs::remove_dir_all(&root).ok();
+
+        assert!(output.contains("Generated"));
+        Ok(())
+    }
 }

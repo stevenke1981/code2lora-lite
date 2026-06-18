@@ -191,6 +191,89 @@ impl Code2LoRAHead {
     }
 }
 
+pub fn save_lora_layers(all_lora: &[LoRAWeights], path: &Path) -> Result<()> {
+    let mut tensors: HashMap<String, Tensor> = HashMap::new();
+    for (layer_idx, lora) in all_lora.iter().enumerate() {
+        insert_pair(&mut tensors, layer_idx, "q", &lora.q);
+        insert_pair(&mut tensors, layer_idx, "k", &lora.k);
+        insert_pair(&mut tensors, layer_idx, "v", &lora.v);
+        insert_pair(&mut tensors, layer_idx, "o", &lora.o);
+        insert_pair(&mut tensors, layer_idx, "gate", &lora.gate);
+        insert_pair(&mut tensors, layer_idx, "up", &lora.up);
+        insert_pair(&mut tensors, layer_idx, "down", &lora.down);
+    }
+    candle_core::safetensors::save(&tensors, path)?;
+    Ok(())
+}
+
+pub fn load_lora_layers(path: &Path, device: &candle_core::Device) -> Result<Vec<LoRAWeights>> {
+    let tensors = candle_core::safetensors::load(path, device)?;
+    let layer_count = tensors
+        .keys()
+        .filter_map(|name| {
+            name.strip_prefix("layers.")
+                .and_then(|rest| rest.split('.').next())
+                .and_then(|idx| idx.parse::<usize>().ok())
+        })
+        .max()
+        .map(|idx| idx + 1)
+        .context("Adapter file does not contain any layers.* tensors")?;
+
+    let mut all_lora = Vec::with_capacity(layer_count);
+    for layer_idx in 0..layer_count {
+        let q = load_pair(&tensors, layer_idx, "q")?;
+        let k = load_pair(&tensors, layer_idx, "k")?;
+        let v = load_pair(&tensors, layer_idx, "v")?;
+        let o = load_pair(&tensors, layer_idx, "o")?;
+        let gate = load_pair(&tensors, layer_idx, "gate")?;
+        let up = load_pair(&tensors, layer_idx, "up")?;
+        let down = load_pair(&tensors, layer_idx, "down")?;
+        all_lora.push(LoRAWeights {
+            q,
+            k,
+            v,
+            o,
+            gate,
+            up,
+            down,
+        });
+    }
+
+    Ok(all_lora)
+}
+
+fn insert_pair(
+    tensors: &mut HashMap<String, Tensor>,
+    layer_idx: usize,
+    module: &str,
+    pair: &LoRAPair,
+) {
+    tensors.insert(adapter_key(layer_idx, module, "a"), pair.0.clone());
+    tensors.insert(adapter_key(layer_idx, module, "b"), pair.1.clone());
+}
+
+fn load_pair(
+    tensors: &HashMap<String, Tensor>,
+    layer_idx: usize,
+    module: &str,
+) -> Result<LoRAPair> {
+    let a_key = adapter_key(layer_idx, module, "a");
+    let b_key = adapter_key(layer_idx, module, "b");
+    let a = tensors
+        .get(&a_key)
+        .with_context(|| format!("Missing adapter tensor {a_key}"))?
+        .clone();
+    let b = tensors
+        .get(&b_key)
+        .with_context(|| format!("Missing adapter tensor {b_key}"))?
+        .clone();
+    Ok((a, b))
+}
+
+fn adapter_key(layer_idx: usize, module: &str, side: &str) -> String {
+    format!("layers.{layer_idx:02}.{module}.{side}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,6 +345,46 @@ mod tests {
         }
 
         println!("All shapes and per-layer distinctness correct!");
+        Ok(())
+    }
+
+    #[test]
+    fn test_lora_adapter_safetensors_round_trip() -> Result<()> {
+        let device = Device::Cpu;
+        let config = HypernetworkConfig {
+            hidden_dim: 16,
+            rank: 2,
+            num_layers: 2,
+            repo_embed_dim: 8,
+            llm_hidden_dim: 8,
+            llm_intermediate_dim: 12,
+            kv_proj_dim: 4,
+        };
+        let varmap = VarMap::new();
+        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
+        let hn = Code2LoRAHead::new(vb, &config, &varmap)?;
+        let input = Tensor::rand(0f32, 1.0, (1, config.repo_embed_dim), &device)?;
+        let all_lora = hn.forward_all(&input)?;
+        let path = std::env::temp_dir().join(format!(
+            "code2lora-adapter-test-{}.safetensors",
+            std::process::id()
+        ));
+
+        save_lora_layers(&all_lora, &path)?;
+        let loaded = load_lora_layers(&path, &device)?;
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(loaded.len(), config.num_layers);
+        assert_eq!(loaded[0].q.0.dims(), &[config.rank, config.llm_hidden_dim]);
+        assert_eq!(loaded[0].q.1.dims(), &[config.llm_hidden_dim, config.rank]);
+        assert_eq!(
+            loaded[1].down.0.dims(),
+            &[config.rank, config.llm_intermediate_dim]
+        );
+        assert_eq!(
+            loaded[1].down.1.dims(),
+            &[config.llm_hidden_dim, config.rank]
+        );
         Ok(())
     }
 }

@@ -105,12 +105,12 @@ Repository (.py 檔案)
 | Hypernetwork（7 組輸出頭、逐層嵌入） | ✅ | `test_hypernetwork_shapes` |
 | 訓練管線（小模型驗證） | ✅ | `test_training_pipeline_full` |
 | 真實模型訓練（Qwen2.5-0.5B, GPU） | ✅ | `test_p6_real_model_training` (忽略) |
-| 推理 CLI（adapt/complete/encode） | ✅ | CLI 骨架完成 |
-| 完整端到端測試 | 🟡 | 尚未 |
+| 推理 CLI（adapt/complete/encode） | ✅ | LoRA adapter safetensors |
+| 完整端到端測試 | ✅ | `test_p7_full_end_to_end_real_inference` (忽略) |
 | 真實資料集（RepoPeftBench） | ✅ | HF Parquet → JSONL 腳本 + loader 測試 |
 | 效能調優 | 🟡 | device-side batches + warning 清理；GPU util profiling 待量測 |
 
-7 個常規測試通過；1 個 `#[ignore]` 測試需要 HF Hub 存取權與 CUDA。
+8 個常規測試通過；2 個 `#[ignore]` 測試需要 HF Hub / model 存取。
 
 ---
 
@@ -143,22 +143,25 @@ cargo test
 # 3. 使用真實 Qwen2.5-Coder-0.5B 在合成資料上訓練（需要 GPU + HF）
 cargo test test_p6_real_model_training -- --ignored --nocapture
 
-# 4. 下載並轉換小型 RepoPeftBench 真實資料樣本
+# 4. 執行完整真實推理 E2E 測試（會下載 MiniLM + Qwen2.5-Coder）
+cargo test test_p7_full_end_to_end_real_inference -- --ignored --nocapture
+
+# 5. 下載並轉換小型 RepoPeftBench 真實資料樣本
 powershell -ExecutionPolicy Bypass -File scripts/download_code2lora_data.ps1 -MaxRows 1000
 
-# 5. 使用轉換後的真實 JSONL 訓練
+# 6. 使用轉換後的真實 JSONL 訓練
 cargo run --release -- train -d data/code2lora-ood -o checkpoints -e 1
 
-# 6. 對真實程式碼目錄進行訓練
+# 7. 對真實程式碼目錄進行訓練
 cargo run --release -- train -d ./my-python-project -o checkpoints -e 5
 
-# 7. 為倉庫產生 Adapter
+# 8. 為倉庫產生 Adapter
 cargo run --release -- adapt ./my-python-project -o adapter.safetensors
 
-# 8. 執行 assertion 補全
+# 9. 執行 assertion 補全
 cargo run --release -- complete ./my-python-project adapter.safetensors -o assertion.txt
 
-# 9. 純編碼倉庫（不跑完整管線）
+# 10. 純編碼倉庫（不跑完整管線）
 cargo run --release -- encode ./my-python-project -o repo_emb.embed
 ```
 

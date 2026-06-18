@@ -105,12 +105,12 @@ Repository (.py files)
 | Hypernetwork (7 heads, per-layer emb) | ✅ | `test_hypernetwork_shapes` |
 | Training pipeline (tiny model) | ✅ | `test_training_pipeline_full` |
 | Real model training (Qwen2.5-0.5B, GPU) | ✅ | `test_p6_real_model_training` (ignored) |
-| Inference CLI (adapt/complete/encode) | ✅ | CLI skeleton |
-| Full end-to-end test | 🟡 | Not yet |
+| Inference CLI (adapt/complete/encode) | ✅ | LoRA adapter safetensors |
+| Full end-to-end test | ✅ | `test_p7_full_end_to_end_real_inference` (ignored) |
 | Real dataset (RepoPeftBench) | ✅ | HF Parquet → JSONL script + loader test |
 | Performance optimization | 🟡 | Device-side batches + clean warnings; GPU util profiling pending |
 
-7 regular tests pass; 1 ignored test requires HF Hub access and CUDA.
+8 regular tests pass; 2 ignored tests require HF Hub/model access.
 
 ---
 
@@ -143,22 +143,25 @@ cargo test
 # 3. Train on synthetic data with real Qwen2.5-Coder-0.5B (requires GPU + HF)
 cargo test test_p6_real_model_training -- --ignored --nocapture
 
-# 4. Download and convert a small real RepoPeftBench sample
+# 4. Run the full real inference E2E test (downloads MiniLM + Qwen2.5-Coder)
+cargo test test_p7_full_end_to_end_real_inference -- --ignored --nocapture
+
+# 5. Download and convert a small real RepoPeftBench sample
 powershell -ExecutionPolicy Bypass -File scripts/download_code2lora_data.ps1 -MaxRows 1000
 
-# 5. Train on converted real JSONL
+# 6. Train on converted real JSONL
 cargo run --release -- train -d data/code2lora-ood -o checkpoints -e 1
 
-# 6. Train on a real code directory
+# 7. Train on a real code directory
 cargo run --release -- train -d ./my-python-project -o checkpoints -e 5
 
-# 7. Generate adapter for a repo
+# 8. Generate adapter for a repo
 cargo run --release -- adapt ./my-python-project -o adapter.safetensors
 
-# 8. Run assertion completion
+# 9. Run assertion completion
 cargo run --release -- complete ./my-python-project adapter.safetensors -o assertion.txt
 
-# 9. Encode a repo without the full pipeline
+# 10. Encode a repo without the full pipeline
 cargo run --release -- encode ./my-python-project -o repo_emb.embed
 ```
 

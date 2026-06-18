@@ -77,7 +77,8 @@
 - [x] `complete` 命令實現（main.rs → infer::complete）
 - [x] `encode` 命令實現（main.rs → infer::encode）
 - [x] Repo embedding cache round-trip 修正（binary-safe load）
-- [ ] RepoEncoder → adapt → complete 完整端到端測試
+- [x] Adapter safetensors round-trip 測試（fast test）
+- [x] RepoEncoder → adapt → complete 完整端到端測試（`test_p7_full_end_to_end_real_inference`, ignored）
 
 ## P8: Polish
 
