@@ -89,6 +89,8 @@
 - [x] Logging（env_logger, info 層級）
 - [x] README 與專案說明（中英文）
 - [x] Codex/OpenCode compact context pack（`agent-context`）
+- [x] 專案級 `AGENTS.md` 要求 agent session 先使用 compact context
+- [x] PowerShell wrapper（`scripts/agent-context.ps1`）一鍵產生 context + metrics
 - [x] Token 減量 metrics（raw repo estimate vs compact context estimate）
 - [x] 效能調優：BatchIterator 直接在訓練 device 建 tensor，減少 CPU→GPU batch 搬移
 - [x] 效能調優：adapt / complete / encode 使用 repo embedding cache

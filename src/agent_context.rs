@@ -79,12 +79,12 @@ pub fn write_agent_context(
         .with_context(|| format!("Failed to write {}", context_path.display()))?;
 
     let report = AgentContextReport {
-        repo_path: repo_path.display().to_string(),
-        output_dir: output_dir.display().to_string(),
-        context_path: context_path.display().to_string(),
-        metrics_path: metrics_path.display().to_string(),
-        codex_prompt_path: codex_prompt_path.display().to_string(),
-        opencode_prompt_path: opencode_prompt_path.display().to_string(),
+        repo_path: display_path(&repo_path),
+        output_dir: display_path(&output_dir),
+        context_path: display_path(&context_path),
+        metrics_path: display_path(&metrics_path),
+        codex_prompt_path: display_path(&codex_prompt_path),
+        opencode_prompt_path: display_path(&opencode_prompt_path),
         files_scanned: scan.files_scanned,
         files_included: scan.signals.len(),
         raw_chars: scan.raw_chars,
@@ -121,7 +121,7 @@ fn render_context_markdown(repo_path: &Path, signals: &[FileSignal], raw_chars: 
     let mut out = String::new();
     out.push_str("# Code2LoRA Agent Context Pack\n\n");
     out.push_str("Use this compact pack before opening broad source files. It is designed for Codex/OpenCode runs where token budget matters.\n\n");
-    out.push_str(&format!("- Repository: `{}`\n", repo_path.display()));
+    out.push_str(&format!("- Repository: `{}`\n", display_path(repo_path)));
     out.push_str(&format!("- Raw scanned characters: `{raw_chars}`\n"));
     out.push_str("- Adapter artifact path, when available: pass `checkpoints/final.safetensors` to `code2lora-lite adapt`.\n");
     out.push_str("- Reduced-context rule: inspect the files below first, then open additional files only when the task requires exact code.\n\n");
@@ -162,7 +162,7 @@ fn render_agent_prompt(
 ) -> Result<String> {
     Ok(format!(
         "# {agent} Prompt\n\nRead `{}` first. Treat it as the compact repository context for this task.\n\nToken evidence:\n- Raw token estimate: {}\n- Context token estimate: {}\n- Estimated reduction: {:.1}%\n\nOnly open raw source files when the compact context does not contain enough evidence.\n",
-        context_path.display(),
+        display_path(context_path),
         report.raw_token_estimate,
         report.context_token_estimate,
         report.reduction_ratio * 100.0
@@ -341,6 +341,11 @@ fn relative_path(root: &Path, path: &Path) -> String {
         .map(|part| part.as_os_str().to_string_lossy())
         .collect::<Vec<_>>()
         .join("/")
+}
+
+fn display_path(path: &Path) -> String {
+    let text = path.display().to_string();
+    text.strip_prefix("\\\\?\\").unwrap_or(&text).to_string()
 }
 
 fn estimate_tokens(chars: usize) -> usize {

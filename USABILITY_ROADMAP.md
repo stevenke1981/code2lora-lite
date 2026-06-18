@@ -15,6 +15,8 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
    `cargo run --release -- complete ./my-python-project adapter.safetensors --prefix "def test_answer():`n    assert answer() ==" --max-tokens 64 -o assertion.txt`
 5. Build a compact Codex/OpenCode context pack:
    `cargo run --release -- agent-context ./my-python-project -o .code2lora/agent-context --max-files 24`
+6. Agent-friendly wrapper:
+   `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-context.ps1 -RepoPath ./my-python-project`
 
 ## Fixed Blocking Gaps
 
@@ -26,8 +28,12 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
   script and the real checkpoint-driven inference path.
 - `agent-context` writes Codex/OpenCode prompt stubs plus deterministic
   before/after token estimates so token reduction is measurable.
-- Current self-run evidence for this repo: raw estimate 50,070 tokens,
-  compact context estimate 736 tokens, estimated reduction 98.5%.
+- Project-level `AGENTS.md` tells Codex/OpenCode sessions to refresh and read
+  the compact context pack before opening broad source files.
+- `scripts/agent-context.ps1` is the one-command Windows wrapper for humans,
+  Codex, and OpenCode.
+- Current self-run evidence for this repo: raw estimate 51,255 tokens,
+  compact context estimate 771 tokens, estimated reduction 98.5%.
 
 ## P7: Real Dataset Acceptance
 

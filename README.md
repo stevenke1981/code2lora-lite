@@ -174,6 +174,9 @@ cargo run --release -- complete ./my-python-project adapter.safetensors `
 # 11. Build a compact Codex/OpenCode context pack with token-savings metrics
 cargo run --release -- agent-context ./my-python-project -o .code2lora/agent-context --max-files 24
 
+# Or use the agent-friendly PowerShell wrapper
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-context.ps1 -RepoPath ./my-python-project
+
 # 12. Encode a repo without the full pipeline
 cargo run --release -- encode ./my-python-project -o repo_emb.embed
 ```
@@ -267,6 +270,10 @@ The token metric is a deterministic `chars / 4` estimate. It is not a billing
 counter, but it gives a repeatable before/after signal for whether the agent is
 reading a compact pack instead of broad source dumps.
 
+Project-level `AGENTS.md` tells Codex/OpenCode to run
+`scripts/agent-context.ps1` at session start, then read
+`.code2lora/agent-context/context.md` before opening broad source files.
+
 ---
 
 ## Project Structure
@@ -274,6 +281,7 @@ reading a compact pack instead of broad source dumps.
 ```
 code2lora-lite/
 ├── Cargo.toml                  # Rust project manifest
+├── AGENTS.md                   # Codex/OpenCode compact-context startup rule
 ├── README.md                   # This file
 ├── README.zh-TW.md             # Traditional Chinese documentation
 ├── spec.md                     # Original specification document
@@ -291,7 +299,8 @@ code2lora-lite/
 │   ├── infer.rs                # adapt/complete/encode pipeline
 │   └── agent_context.rs        # Codex/OpenCode context pack + token metrics
 ├── scripts/
-│   └── prepare_repopeftbench.ps1    # HF Parquet download + JSONL conversion
+│   ├── agent-context.ps1           # Codex/OpenCode context-pack wrapper
+│   └── prepare_repopeftbench.ps1   # HF Parquet download + JSONL conversion
 ```
 
 ---
