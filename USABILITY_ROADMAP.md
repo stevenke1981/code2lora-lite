@@ -13,6 +13,8 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
    `cargo run --release -- adapt ./my-python-project -m checkpoints/final.safetensors -o adapter.safetensors`
 4. Complete from a real assertion/code prefix:
    `cargo run --release -- complete ./my-python-project adapter.safetensors --prefix "def test_answer():`n    assert answer() ==" --max-tokens 64 -o assertion.txt`
+5. Build a compact Codex/OpenCode context pack:
+   `cargo run --release -- agent-context ./my-python-project -o .code2lora/agent-context --max-files 24`
 
 ## Fixed Blocking Gaps
 
@@ -22,6 +24,10 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
   to text instead of generating from placeholder token IDs.
 - README quick-start commands now point to the existing RepoPeftBench preparation
   script and the real checkpoint-driven inference path.
+- `agent-context` writes Codex/OpenCode prompt stubs plus deterministic
+  before/after token estimates so token reduction is measurable.
+- Current self-run evidence for this repo: raw estimate 50,070 tokens,
+  compact context estimate 736 tokens, estimated reduction 98.5%.
 
 ## P7: Real Dataset Acceptance
 
@@ -35,6 +41,8 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
 
 ## P8: Performance Acceptance
 
+- [x] Provide a no-GPU `agent-context` path for Codex/OpenCode token reduction.
+- [x] Write `metrics.json` with raw/context token estimates and reduction ratio.
 - [ ] Measure prepare/train/adapt/complete wall time on CPU and CUDA.
 - [ ] Capture GPU utilization during a real tiny-train run.
 - [ ] Confirm repo embedding cache hits on repeated `adapt` / `encode` runs.

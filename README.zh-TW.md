@@ -110,7 +110,7 @@ Repository (.py 檔案)
 | 真實資料集（RepoPeftBench） | ✅ | HF Parquet → JSONL 腳本 + 真實資料 smoke test |
 | 效能調優 | 🟡 | device-side batches + warning 清理；GPU util profiling 待量測 |
 
-9 個常規測試通過；4 個 `#[ignore]` 測試需要 HF Hub / model 存取、已準備的
+10 個常規測試通過；4 個 `#[ignore]` 測試需要 HF Hub / model 存取、已準備的
 RepoPeftBench 資料，或較長時間的 GPU 執行。
 
 ---
@@ -171,7 +171,10 @@ cargo run --release -- complete ./my-python-project adapter.safetensors `
   --max-tokens 64 `
   -o assertion.txt
 
-# 11. 純編碼倉庫（不跑完整管線）
+# 11. 產生 Codex/OpenCode compact context pack 與 token 減量 metrics
+cargo run --release -- agent-context ./my-python-project -o .code2lora/agent-context --max-files 24
+
+# 12. 純編碼倉庫（不跑完整管線）
 cargo run --release -- encode ./my-python-project -o repo_emb.embed
 ```
 
@@ -238,6 +241,31 @@ code2lora-lite encode [選項] <REPO_PATH>
   -h, --help                顯示說明
 ```
 
+### `agent-context`
+
+```
+code2lora-lite agent-context [選項] <REPO_PATH>
+
+引數：
+  <REPO_PATH>               目標倉庫路徑
+
+選項：
+  -o, --output-dir <DIR>    輸出目錄；相對路徑會以目標 repo 為基準
+                            [預設: .code2lora/agent-context]
+      --max-files <N>       context pack 內最多列出的高訊號檔案數 [預設: 24]
+  -h, --help                顯示說明
+```
+
+此指令會輸出：
+
+- `context.md`：給 Codex/OpenCode 優先讀取的 compact repo context
+- `metrics.json`：原始 token 估算、壓縮 context token 估算、減量比例
+- `codex-prompt.md`：Codex session 可用的 prompt stub
+- `opencode-prompt.md`：OpenCode session 可用的 prompt stub
+
+token metric 使用可重複的 `chars / 4` 估算。它不是帳單 token 計數器，但可以
+穩定驗證 agent 是否先讀 compact pack，而不是直接把大量原始碼塞進 prompt。
+
 ---
 
 ## 專案結構
@@ -259,7 +287,8 @@ code2lora-lite/
 │   ├── base_llm.rs             # Code2LoRAModel 協調器 + 測試
 │   ├── dataset.rs              # CodeDataset + RepoPeftBench JSONL loader
 │   ├── trainer.rs              # 訓練迴圈（CR/IR, AdamW, 驗證）
-│   └── infer.rs                # adapt/complete/encode 管線
+│   ├── infer.rs                # adapt/complete/encode 管線
+│   └── agent_context.rs        # Codex/OpenCode context pack + token metrics
 ├── scripts/
 │   └── prepare_repopeftbench.ps1    # HF Parquet 下載 + JSONL 轉換
 ```

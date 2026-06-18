@@ -88,6 +88,8 @@
 - [x] Error handling（thiserror + anyhow）
 - [x] Logging（env_logger, info 層級）
 - [x] README 與專案說明（中英文）
+- [x] Codex/OpenCode compact context pack（`agent-context`）
+- [x] Token 減量 metrics（raw repo estimate vs compact context estimate）
 - [x] 效能調優：BatchIterator 直接在訓練 device 建 tensor，減少 CPU→GPU batch 搬移
 - [x] 效能調優：adapt / complete / encode 使用 repo embedding cache
 - [ ] 效能量測：GPU util > 60%（需真實 GPU profiling）

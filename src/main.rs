@@ -3,6 +3,7 @@ use candle_core::Device;
 use clap::{Parser, Subcommand};
 use log::info;
 
+mod agent_context;
 mod base_llm;
 mod config;
 mod dataset;
@@ -77,14 +78,23 @@ enum Commands {
         #[arg(short, long, default_value = "repo_embedding.embed")]
         output: String,
     },
+    /// Build a compact Codex/OpenCode context pack with token-savings metrics
+    AgentContext {
+        /// Path to the repository
+        repo_path: String,
+        /// Output directory, relative to the repository when not absolute
+        #[arg(short, long, default_value = ".code2lora/agent-context")]
+        output_dir: String,
+        /// Maximum number of high-signal files to include
+        #[arg(long, default_value_t = 24)]
+        max_files: usize,
+    },
 }
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let cli = Cli::parse();
-    let device = Device::cuda_if_available(0)?;
-    info!("Using device: {device:?}");
 
     match cli.command {
         Commands::Train {
@@ -94,6 +104,8 @@ fn main() -> Result<()> {
             lr,
             batch_size,
         } => {
+            let device = Device::cuda_if_available(0)?;
+            info!("Using device: {device:?}");
             let hn_config = config::HypernetworkConfig::default();
 
             // Load dataset before touching the large base model so bad data paths fail fast.
@@ -143,6 +155,8 @@ fn main() -> Result<()> {
             hypernetwork,
             output,
         } => {
+            let device = Device::cuda_if_available(0)?;
+            info!("Using device: {device:?}");
             infer::adapt(
                 &std::path::PathBuf::from(repo_path),
                 &std::path::PathBuf::from(hypernetwork),
@@ -157,6 +171,8 @@ fn main() -> Result<()> {
             max_tokens,
             output,
         } => {
+            let device = Device::cuda_if_available(0)?;
+            info!("Using device: {device:?}");
             infer::complete(
                 &std::path::PathBuf::from(repo_path),
                 &std::path::PathBuf::from(adapter),
@@ -167,11 +183,25 @@ fn main() -> Result<()> {
             )?;
         }
         Commands::Encode { repo_path, output } => {
+            let device = Device::cuda_if_available(0)?;
+            info!("Using device: {device:?}");
             infer::encode(
                 &std::path::PathBuf::from(repo_path),
                 &std::path::PathBuf::from(output),
                 &device,
             )?;
+        }
+        Commands::AgentContext {
+            repo_path,
+            output_dir,
+            max_files,
+        } => {
+            let report = agent_context::write_agent_context(
+                &std::path::PathBuf::from(repo_path),
+                &std::path::PathBuf::from(output_dir),
+                max_files,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
         }
     }
 

@@ -1,5 +1,6 @@
 /target
 .cache/
+.code2lora/
 .codebase-memory/
 *.npz
 *.safetensors

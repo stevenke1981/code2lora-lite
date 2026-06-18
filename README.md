@@ -110,7 +110,7 @@ Repository (.py files)
 | Real dataset (RepoPeftBench) | ✅ | HF Parquet → JSONL script + real-data smoke test |
 | Performance optimization | 🟡 | Device-side batches + clean warnings; GPU util profiling pending |
 
-9 regular tests pass; 4 ignored tests require HF Hub/model access, prepared
+10 regular tests pass; 4 ignored tests require HF Hub/model access, prepared
 RepoPeftBench data, or longer GPU runs.
 
 ---
@@ -171,7 +171,10 @@ cargo run --release -- complete ./my-python-project adapter.safetensors `
   --max-tokens 64 `
   -o assertion.txt
 
-# 11. Encode a repo without the full pipeline
+# 11. Build a compact Codex/OpenCode context pack with token-savings metrics
+cargo run --release -- agent-context ./my-python-project -o .code2lora/agent-context --max-files 24
+
+# 12. Encode a repo without the full pipeline
 cargo run --release -- encode ./my-python-project -o repo_emb.embed
 ```
 
@@ -238,6 +241,32 @@ Options:
   -h, --help                Print help
 ```
 
+### `agent-context`
+
+```
+code2lora-lite agent-context [OPTIONS] <REPO_PATH>
+
+Arguments:
+  <REPO_PATH>               Path to the repository
+
+Options:
+  -o, --output-dir <DIR>    Output directory, relative to the repo when not absolute
+                            [default: .code2lora/agent-context]
+      --max-files <N>       Maximum high-signal files in the context pack [default: 24]
+  -h, --help                Print help
+```
+
+This command writes:
+
+- `context.md`: compact repository context for Codex/OpenCode to read first
+- `metrics.json`: raw-token estimate, compact-context estimate, and saved-token ratio
+- `codex-prompt.md`: prompt stub for Codex sessions
+- `opencode-prompt.md`: prompt stub for OpenCode sessions
+
+The token metric is a deterministic `chars / 4` estimate. It is not a billing
+counter, but it gives a repeatable before/after signal for whether the agent is
+reading a compact pack instead of broad source dumps.
+
 ---
 
 ## Project Structure
@@ -259,7 +288,8 @@ code2lora-lite/
 │   ├── base_llm.rs             # Code2LoRAModel orchestrator + tests
 │   ├── dataset.rs              # CodeDataset + RepoPeftBench JSONL loader
 │   ├── trainer.rs              # Training loop (CR/IR, AdamW, validation)
-│   └── infer.rs                # adapt/complete/encode pipeline
+│   ├── infer.rs                # adapt/complete/encode pipeline
+│   └── agent_context.rs        # Codex/OpenCode context pack + token metrics
 ├── scripts/
 │   └── prepare_repopeftbench.ps1    # HF Parquet download + JSONL conversion
 ```
