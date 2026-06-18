@@ -1,0 +1,31 @@
+[package]
+name = "code2lora-lite"
+version = "0.1.0"
+edition = "2021"
+description = "Lightweight Code2LoRA: Hypernetwork-generated LoRA adapters for code LLMs"
+
+[[bin]]
+name = "code2lora-lite"
+path = "src/main.rs"
+
+[dependencies]
+candle-core = "0.10"
+candle-nn = "0.10"
+candle-transformers = "0.10"
+hf-hub = "0.4"
+tokenizers = "0.22"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+half = "2"
+rand = "0.8"
+log = "0.4"
+env_logger = "0.11"
+thiserror = "2"
+walkdir = "2"
+rayon = "1"
+
+[features]
+default = []
+cuda = ["candle-core/cuda", "candle-nn/cuda"]

@@ -1,0 +1,10 @@
+/target
+.cache/
+*.npz
+*.safetensors
+*.parquet
+data/
+checkpoints/
+.env
+${PROJECT_ROOT}/
+.opencode/
