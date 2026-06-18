@@ -68,6 +68,31 @@ impl CodeDataset {
     }
 }
 
+/// Generate a synthetic dataset with random embeddings and fabricated code text.
+/// Useful for integration testing and demos — no real repo data required.
+pub fn generate_synthetic(n_examples: usize) -> CodeDataset {
+    let dim = 768; // 384 mean + 384 max pool, matching all-MiniLM-L6-v2 output
+    let mut examples = Vec::with_capacity(n_examples);
+    for i in 0..n_examples {
+        let data: Vec<f32> = (0..dim)
+            .map(|_| rand::random::<f32>() * 2.0 - 1.0)
+            .collect();
+        let emb = RepoEmbedding { data };
+        // Fabricated code that references the example index so it differs per example
+        let code = format!(
+            "def function_{idx}():\n    \"\"\"Generated function {idx}\"\"\"\n    x = {val}\n    return x ** 2\n\nclass Helper{idx}:\n    pass\n",
+            idx = i,
+            val = (i as i32 * 7 + 3) % 100,
+        );
+        examples.push(CodeExample {
+            repo_embedding: emb,
+            code_content: code,
+            language: "python".into(),
+        });
+    }
+    CodeDataset { examples }
+}
+
 /// Batch iterator for training.
 pub struct BatchIterator<'a> {
     embeddings: Vec<&'a CodeExample>,

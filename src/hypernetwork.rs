@@ -46,7 +46,7 @@ impl Code2LoRAHead {
     pub fn new(vb: VarBuilder, config: &HypernetworkConfig, varmap: &VarMap) -> Result<Self> {
         let hidden_dim = config.hidden_dim;
         let rank = config.rank;
-        let input_dim = config.llm_hidden_dim * 2;
+        let input_dim = config.repo_embed_dim;
         let dtype = vb.dtype();
 
         // Shared MLP
@@ -192,7 +192,7 @@ mod tests {
         let hn = Code2LoRAHead::new(vb, &config, &varmap)?;
 
         // Test single forward (backward compat)
-        let input = Tensor::rand(0f32, 1.0, (1, config.llm_hidden_dim * 2), &device)?;
+        let input = Tensor::rand(0f32, 1.0, (1, config.repo_embed_dim), &device)?;
         let w = hn.forward(&input)?;
         // A: (rank, in_dim),  B: (out_dim, rank)
         assert_eq!(w.q.0.dims(), &[config.rank, config.llm_hidden_dim]);

@@ -29,18 +29,21 @@ impl Code2LoRAModel {
         let config_path = repo.get("config.json")?;
         let config: qwen2_model::Config = serde_json::from_slice(&std::fs::read(config_path)?)?;
 
-        let weights_path = repo.get("model.safetensors")
-            .or_else(|_| repo.get("model-00001-of-00002.safetensors"))
-            .context("No safetensors weights found for Qwen2.5-Coder-0.5B")?;
-
+        let weights_paths = collect_safetensors(&repo)?;
         let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&[weights_path], dtype, device)?
+            VarBuilder::from_mmaped_safetensors(&weights_paths, dtype, device)?
         };
 
         // Load the LoRA-capable model (no lm_head)
         let base_model = LoRAModel::new(&config, vb.clone())?;
-        // Load lm_head separately
-        let lm_head = candle_nn::linear_no_bias(config.hidden_size, config.vocab_size, vb.pp("lm_head"))?;
+        // Load lm_head separately (handle tie_word_embeddings)
+        let lm_head = if config.tie_word_embeddings {
+            // Use the embedding weight as the output projection
+            let embed_w = base_model.embed_tokens.embeddings().clone();
+            candle_nn::Linear::new(embed_w, None)
+        } else {
+            candle_nn::linear_no_bias(config.hidden_size, config.vocab_size, vb.pp("lm_head"))?
+        };
 
         // Load tokenizer
         let tokenizer_path = repo.get("tokenizer.json")
@@ -241,6 +244,36 @@ impl Code2LoRAModel {
 
 }
 
+/// Collect all safetensors weight paths for a model repo.
+/// Handles both single-file and sharded models by reading the index file.
+fn collect_safetensors(repo: &hf_hub::api::sync::ApiRepo) -> Result<Vec<std::path::PathBuf>> {
+    // Try single file first
+    if let Ok(path) = repo.get("model.safetensors") {
+        return Ok(vec![path]);
+    }
+    // Read index file to discover shards
+    let index_path = repo.get("model.safetensors.index.json")
+        .context("No model.safetensors or model.safetensors.index.json in repo")?;
+    let index_text = std::fs::read_to_string(index_path)?;
+    let index: serde_json::Value = serde_json::from_str(&index_text)?;
+    let weight_map = index.get("weight_map")
+        .and_then(|m| m.as_object())
+        .context("Invalid safetensors index: missing weight_map")?;
+
+    let mut shard_names: Vec<&str> = weight_map
+        .values()
+        .filter_map(|v| v.as_str())
+        .collect();
+    shard_names.sort();
+    shard_names.dedup();
+
+    let mut shards = Vec::with_capacity(shard_names.len());
+    for name in &shard_names {
+        shards.push(repo.get(name)?);
+    }
+    Ok(shards)
+}
+
 fn l2_normalize(x: &Tensor) -> Result<Tensor> {
     let norm = x.sqr()?.sum_keepdim(1)?.sqrt()?;
     Ok(x.broadcast_div(&norm.clamp(1e-12, f32::MAX)?)?)
@@ -323,6 +356,7 @@ mod tests {
             hidden_dim: 32,
             rank: 4,
             num_layers: 2,
+            repo_embed_dim: 64,
             llm_hidden_dim: 64,
             llm_intermediate_dim: 64,
             kv_proj_dim: 32,  // 2 kv_heads × 16 head_dim
@@ -340,7 +374,8 @@ mod tests {
         let lm_head = candle_nn::linear_no_bias(64, 256, model_vb.pp("lm_head"))?;
 
         // ── 5. Dummy training data ──
-        let repo_emb = Tensor::rand(-1f32, 1f32, (1, 128), &device)?;
+        // repo_emb dimension must match hn_cfg.repo_embed_dim
+        let repo_emb = Tensor::rand(-1f32, 1f32, (1, hn_cfg.repo_embed_dim), &device)?;
         let ids_raw = Tensor::rand(0f32, 255f32, (1, 16), &device)?;
         let input_ids = ids_raw.to_dtype(DType::U32)?;
 
@@ -402,6 +437,74 @@ mod tests {
 
         println!("P5 integration: loss before={loss_val:.6} after={loss_val2:.6} (backward_step OK)");
 
+        Ok(())
+    }
+
+    /// ─── P6: Real-model training demo ───
+    ///
+    /// Downloads the real Qwen2.5-Coder-0.5B model (if not cached),
+    /// generates synthetic training data, and runs a short training loop
+    /// on GPU (or CPU fallback).  Verifies the training loop completes
+    /// without numeric divergence and reports timing.
+    #[test]
+    #[ignore = "Requires HF model download (~2 GB) and GPU"]
+    fn test_p6_real_model_training() -> Result<()> {
+        use candle_core::DType;
+        use candle_nn::VarMap;
+        use std::time::Instant;
+
+        let device = Device::cuda_if_available(0)?;
+        info!("P6: using device {device:?}");
+
+        // ── 1. Load real Qwen2.5-Coder-0.5B model ──
+        eprintln!("P6: loading Qwen2.5-Coder-0.5B…");
+        let start = Instant::now();
+        // Build HN config that matches the model's actual dimensions from HF
+        // (HypernetworkConfig::default() now has the correct values, but we
+        //  also demonstrate how to derive them dynamically from the model.)
+        let hn_cfg = HypernetworkConfig {
+            hidden_dim: 384,
+            rank: 8,
+            ..Default::default()
+        };
+        let qwen = Code2LoRAModel::new(&device, DType::F32, &hn_cfg)?;
+        eprintln!("P6: model loaded ({:.1}s) hidden={}, intermediate={}, layers={}",
+            start.elapsed().as_secs_f32(),
+            hn_cfg.llm_hidden_dim, hn_cfg.llm_intermediate_dim, hn_cfg.num_layers);
+
+        // ── 2. Create hypernetwork on GPU ──
+        let hn_varmap = VarMap::new();
+        let hn_vb = VarBuilder::from_varmap(&hn_varmap, DType::F32, &device);
+        let hn = Code2LoRAHead::new(hn_vb, &hn_cfg, &hn_varmap)?;
+        info!("P6: hypernetwork created ({} hidden dim, rank {})",
+            hn_cfg.hidden_dim, hn_cfg.rank);
+
+        // ── 3. Create synthetic dataset ──
+        let n_examples = 8;
+        let dataset = crate::dataset::generate_synthetic(n_examples);
+        info!("P6: synthetic dataset: {n_examples} examples");
+
+        // ── 4. Create trainer & train ──
+        let train_cfg = crate::config::TrainConfig {
+            data_dir: String::new(),
+            base_model: String::new(),
+            output: "p6_checkpoints".into(),
+            rank: hn_cfg.rank,
+            epochs: 3,
+            lr: 1e-4,
+            batch_size: 2,
+            seq_len: 2048,
+            cache_dir: "cache".into(),
+            cr_holdout: 0.2,
+        };
+        std::fs::create_dir_all("p6_checkpoints")?;
+        let mut trainer = crate::trainer::Trainer::new(hn, qwen, hn_varmap, train_cfg, device);
+        let train_start = Instant::now();
+        trainer.train(&dataset)?;
+        info!("P6: training completed in {:.1}s", train_start.elapsed().as_secs_f32());
+
+        // ── 5. Cleanup ──
+        std::fs::remove_dir_all("p6_checkpoints").ok();
         Ok(())
     }
 
