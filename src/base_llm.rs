@@ -119,6 +119,17 @@ impl Code2LoRAModel {
         Ok((ids, seq_len))
     }
 
+    pub fn encode_text(&self, text: &str) -> Result<Vec<u32>> {
+        let (ids, _) = self.tokenize(text)?;
+        Ok(ids)
+    }
+
+    pub fn decode_tokens(&self, tokens: &[u32]) -> Result<String> {
+        self.tokenizer
+            .decode(tokens, true)
+            .map_err(|e| anyhow::anyhow!("Decode error: {e}"))
+    }
+
     // ─── Loss functions ───
 
     /// Compute generative (IR) loss for a single (code, repo_emb) pair.
@@ -254,6 +265,17 @@ impl Code2LoRAModel {
         }
 
         Ok(generated)
+    }
+
+    pub fn generate_text(&mut self, prompt: &str, max_new_tokens: usize) -> Result<String> {
+        let input_ids = self.encode_text(prompt)?;
+        let generated = self.generate(&input_ids, max_new_tokens)?;
+        let new_tokens = if generated.len() > input_ids.len() {
+            &generated[input_ids.len()..]
+        } else {
+            &[]
+        };
+        self.decode_tokens(new_tokens)
     }
 }
 

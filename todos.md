@@ -50,7 +50,7 @@
 - [x] RepoEmbedding 資料結構（768-dim f32 vec）
 - [x] BatchIterator（依 batch_size 分割）
 - [x] generate_synthetic() 整合測試用合成資料
-- [x] 下載/轉換 HF 真實 RepoPeftBench 資料集（`scripts/download_code2lora_data.ps1`）
+- [x] 下載/轉換 HF 真實 RepoPeftBench 資料集（`scripts/prepare_repopeftbench.ps1`）
 - [x] JSONL 真實資料 loader（支援 `input_prefix` / `target_value` / split 欄位）
 - [x] 完整 CR/IR 分割（優先使用官方 split，否則 ratio fallback）
 - [x] 真實資料 smoke 驗證（100 筆 OOD QnA JSONL + Rust loader ignored test）
@@ -77,6 +77,8 @@
 - [x] `adapt` 命令實現（main.rs → infer::adapt）
 - [x] `complete` 命令實現（main.rs → infer::complete）
 - [x] `encode` 命令實現（main.rs → infer::encode）
+- [x] `adapt` 載入已訓練 hypernetwork checkpoint（不再產生隨機 adapter）
+- [x] `complete` 接受真實 prefix 與 max token 參數
 - [x] Repo embedding cache round-trip 修正（binary-safe load）
 - [x] Adapter safetensors round-trip 測試（fast test）
 - [x] RepoEncoder → adapt → complete 完整端到端測試（`test_p7_full_end_to_end_real_inference`, ignored）

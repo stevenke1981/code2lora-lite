@@ -46,6 +46,9 @@ enum Commands {
     Adapt {
         /// Path to the repository
         repo_path: String,
+        /// Path to a trained hypernetwork checkpoint
+        #[arg(short = 'm', long)]
+        hypernetwork: String,
         /// Output adapter path
         #[arg(short, long, default_value = "adapter.safetensors")]
         output: String,
@@ -56,6 +59,12 @@ enum Commands {
         repo_path: String,
         /// Path to the adapter weights
         adapter: String,
+        /// Assertion/code prefix used as the generation prompt
+        #[arg(short, long)]
+        prefix: String,
+        /// Maximum number of new tokens to generate
+        #[arg(long, default_value_t = 64)]
+        max_tokens: usize,
         /// Output path for the assertion
         #[arg(short, long, default_value = "assertion.txt")]
         output: String,
@@ -91,7 +100,7 @@ fn main() -> Result<()> {
             let dataset_path = std::path::PathBuf::from(&data_dir);
             anyhow::ensure!(
                 dataset_path.exists(),
-                "Data directory {data_dir:?} not found. For real data, run scripts/download_code2lora_data.ps1 first."
+                "Data directory {data_dir:?} not found. For real data, run scripts/prepare_repopeftbench.ps1 first."
             );
             let dummy_device = candle_core::Device::Cpu;
             let dataset = dataset::CodeDataset::load_from_dir(&dataset_path, &dummy_device)?;
@@ -129,9 +138,14 @@ fn main() -> Result<()> {
 
             trainer.train(&dataset)?;
         }
-        Commands::Adapt { repo_path, output } => {
+        Commands::Adapt {
+            repo_path,
+            hypernetwork,
+            output,
+        } => {
             infer::adapt(
                 &std::path::PathBuf::from(repo_path),
+                &std::path::PathBuf::from(hypernetwork),
                 &std::path::PathBuf::from(output),
                 &device,
             )?;
@@ -139,13 +153,17 @@ fn main() -> Result<()> {
         Commands::Complete {
             repo_path,
             adapter,
+            prefix,
+            max_tokens,
             output,
         } => {
             infer::complete(
                 &std::path::PathBuf::from(repo_path),
                 &std::path::PathBuf::from(adapter),
+                &prefix,
                 &std::path::PathBuf::from(output),
                 &device,
+                max_tokens,
             )?;
         }
         Commands::Encode { repo_path, output } => {

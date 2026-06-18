@@ -1,6 +1,6 @@
 use crate::config::HypernetworkConfig;
 use anyhow::{Context, Result};
-use candle_core::{Module, Tensor};
+use candle_core::{DType, Device, Module, Tensor};
 use candle_nn::{Linear, VarBuilder, VarMap};
 use std::collections::HashMap;
 use std::path::Path;
@@ -89,6 +89,7 @@ impl Code2LoRAHead {
     }
 
     /// Generate LoRA weights for layer 0 only (legacy convenience).
+    #[allow(dead_code)]
     pub fn forward(&self, repo_emb: &Tensor) -> Result<LoRAWeights> {
         let h = self.linear1.forward(repo_emb)?;
         let h = h.gelu()?;
@@ -188,6 +189,21 @@ impl Code2LoRAHead {
     pub fn save(&self, path: &Path) -> Result<()> {
         self.varmap.save(path)?;
         Ok(())
+    }
+
+    pub fn load(
+        path: &Path,
+        config: &HypernetworkConfig,
+        dtype: DType,
+        device: &Device,
+    ) -> Result<(Self, VarMap)> {
+        let mut varmap = VarMap::new();
+        let vb = VarBuilder::from_varmap(&varmap, dtype, device);
+        let hn = Self::new(vb, config, &varmap)?;
+        varmap.load(path).with_context(|| {
+            format!("Failed to load hypernetwork checkpoint {}", path.display())
+        })?;
+        Ok((hn, varmap))
     }
 }
 

@@ -22,7 +22,7 @@ pub struct CodeExample {
 
 /// JSONL row produced from RepoPeftBench parquet files.
 ///
-/// The official Parquet files are converted by `scripts/download_code2lora_data.ps1`.
+/// The official Parquet files are converted by `scripts/prepare_repopeftbench.ps1`.
 /// Field aliases keep the Rust loader tolerant of minor schema drift.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AssertionRecord {
@@ -123,6 +123,7 @@ pub struct CodeDataset {
 
 impl CodeDataset {
     /// Create from an existing Vec of CodeExamples (public constructor).
+    #[cfg(test)]
     pub fn from_examples(examples: Vec<CodeExample>) -> Self {
         Self { examples }
     }
@@ -130,7 +131,7 @@ impl CodeDataset {
     /// Load from a directory of JSONL records or .txt/.py files.
     ///
     /// JSONL is the real-data path: convert HF Parquet files first with
-    /// `scripts/download_code2lora_data.ps1`, then point `--data-dir` at the output.
+    /// `scripts/prepare_repopeftbench.ps1`, then point `--data-dir` at the output.
     pub fn load_from_dir(path: &Path, _device: &Device) -> Result<Self> {
         info!("Loading dataset from {path:?}");
         let mut examples = Vec::new();
@@ -267,6 +268,7 @@ impl CodeDataset {
 
 /// Generate a synthetic dataset with random embeddings and fabricated code text.
 /// Useful for integration testing and demos — no real repo data required.
+#[cfg(test)]
 pub fn generate_synthetic(n_examples: usize) -> CodeDataset {
     let dim = 768; // 384 mean + 384 max pool, matching all-MiniLM-L6-v2 output
     let mut examples = Vec::with_capacity(n_examples);
@@ -380,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Requires converted RepoPeftBench JSONL; run scripts/download_code2lora_data.ps1 first"]
+    #[ignore = "Requires converted RepoPeftBench JSONL; run scripts/prepare_repopeftbench.ps1 first"]
     fn test_real_repopeftbench_jsonl_smoke() -> Result<()> {
         let data_dir = std::env::var("CODE2LORA_REAL_DATA_DIR")
             .unwrap_or_else(|_| "data/code2lora-ood-smoke".to_string());
@@ -439,8 +441,8 @@ mod tests {
             }),
         ];
 
-        let tmp = std::env::temp_dir()
-            .join(format!("repopeftbench-test-{}.jsonl", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("repopeftbench-test-{}.jsonl", std::process::id()));
         let jsonl: String = rows.iter().map(|r| r.to_string() + "\n").collect();
         std::fs::write(&tmp, &jsonl)?;
 

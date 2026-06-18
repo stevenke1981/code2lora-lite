@@ -110,7 +110,8 @@ Repository (.py 檔案)
 | 真實資料集（RepoPeftBench） | ✅ | HF Parquet → JSONL 腳本 + 真實資料 smoke test |
 | 效能調優 | 🟡 | device-side batches + warning 清理；GPU util profiling 待量測 |
 
-8 個常規測試通過；2 個 `#[ignore]` 測試需要 HF Hub / model 存取。
+9 個常規測試通過；4 個 `#[ignore]` 測試需要 HF Hub / model 存取、已準備的
+RepoPeftBench 資料，或較長時間的 GPU 執行。
 
 ---
 
@@ -146,24 +147,29 @@ cargo test test_p6_real_model_training -- --ignored --nocapture
 # 4. 執行完整真實推理 E2E 測試（會下載 MiniLM + Qwen2.5-Coder）
 cargo test test_p7_full_end_to_end_real_inference -- --ignored --nocapture
 
-# 5. 下載並轉換小型 RepoPeftBench 真實資料樣本
-powershell -ExecutionPolicy Bypass -File scripts/download_code2lora_data.ps1 -MaxRows 1000
+# 5. 下載並轉換 RepoPeftBench snapshots/QnA 真實資料
+powershell -ExecutionPolicy Bypass -File scripts/prepare_repopeftbench.ps1 `
+  -OutputDir data/repopeftbench `
+  -SkipCloneRepos
 
 # 6. 用 Rust loader 驗證轉換後的真實資料
-$env:CODE2LORA_REAL_DATA_DIR="data/code2lora-ood"
+$env:CODE2LORA_REAL_DATA_DIR="data/repopeftbench"
 cargo test test_real_repopeftbench_jsonl_smoke -- --ignored --nocapture
 
 # 7. 使用轉換後的真實 JSONL 訓練
-cargo run --release -- train -d data/code2lora-ood -o checkpoints -e 1
+cargo run --release -- train -d data/repopeftbench -o checkpoints -e 1
 
 # 8. 對真實程式碼目錄進行訓練
 cargo run --release -- train -d ./my-python-project -o checkpoints -e 5
 
-# 9. 為倉庫產生 Adapter
-cargo run --release -- adapt ./my-python-project -o adapter.safetensors
+# 9. 使用已訓練的 hypernetwork checkpoint 為倉庫產生 Adapter
+cargo run --release -- adapt ./my-python-project -m checkpoints/final.safetensors -o adapter.safetensors
 
-# 10. 執行 assertion 補全
-cargo run --release -- complete ./my-python-project adapter.safetensors -o assertion.txt
+# 10. 從真實 prompt/prefix 執行 assertion 補全
+cargo run --release -- complete ./my-python-project adapter.safetensors `
+  --prefix "def test_answer():`n    assert answer() ==" `
+  --max-tokens 64 `
+  -o assertion.txt
 
 # 11. 純編碼倉庫（不跑完整管線）
 cargo run --release -- encode ./my-python-project -o repo_emb.embed
@@ -198,6 +204,7 @@ code2lora-lite adapt [選項] <REPO_PATH>
   <REPO_PATH>               目標倉庫路徑
 
 選項：
+  -m, --hypernetwork <FILE>  已訓練的 hypernetwork checkpoint
   -o, --output <FILE>       Adapter 輸出路徑  [預設: adapter.safetensors]
   -h, --help                顯示說明
 ```
@@ -212,6 +219,8 @@ code2lora-lite complete [選項] <REPO_PATH> <ADAPTER>
   <ADAPTER>                 Adapter 權重檔案路徑 (safetensors)
 
 選項：
+  -p, --prefix <TEXT>        作為生成 prompt 的 assertion/code prefix
+      --max-tokens <N>       最大生成 token 數  [預設: 64]
   -o, --output <FILE>       輸出檔案路徑  [預設: assertion.txt]
   -h, --help                顯示說明
 ```
@@ -250,9 +259,9 @@ code2lora-lite/
 │   ├── base_llm.rs             # Code2LoRAModel 協調器 + 測試
 │   ├── dataset.rs              # CodeDataset + RepoPeftBench JSONL loader
 │   ├── trainer.rs              # 訓練迴圈（CR/IR, AdamW, 驗證）
-│   └── infer.rs                # adapt/complete/encode 管線（骨架）
+│   └── infer.rs                # adapt/complete/encode 管線
 ├── scripts/
-│   └── download_code2lora_data.ps1  # HF Parquet 下載 + JSONL 轉換
+│   └── prepare_repopeftbench.ps1    # HF Parquet 下載 + JSONL 轉換
 ```
 
 ---
