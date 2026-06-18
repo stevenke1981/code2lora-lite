@@ -53,6 +53,7 @@
 - [x] 下載/轉換 HF 真實 RepoPeftBench 資料集（`scripts/download_code2lora_data.ps1`）
 - [x] JSONL 真實資料 loader（支援 `input_prefix` / `target_value` / split 欄位）
 - [x] 完整 CR/IR 分割（優先使用官方 split，否則 ratio fallback）
+- [x] 真實資料 smoke 驗證（100 筆 OOD QnA JSONL + Rust loader ignored test）
 
 ## P5: Trainer
 

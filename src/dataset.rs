@@ -48,7 +48,7 @@ pub struct AssertionRecord {
     pub production_code_diff: Option<String>,
     #[serde(default, alias = "repo_state_embedding", alias = "embedding")]
     pub repo_embedding: Vec<f32>,
-    #[serde(default)]
+    #[serde(default, alias = "test_file")]
     pub file_path: Option<String>,
 }
 
@@ -370,6 +370,32 @@ mod tests {
         assert_eq!(ir.len(), 0);
         assert_eq!(cr[0].repo_embedding.len(), 768);
         assert!(cr[0].code_content.contains("assert answer() =="));
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "Requires converted RepoPeftBench JSONL; run scripts/download_code2lora_data.ps1 first"]
+    fn test_real_repopeftbench_jsonl_smoke() -> Result<()> {
+        let data_dir = std::env::var("CODE2LORA_REAL_DATA_DIR")
+            .unwrap_or_else(|_| "data/code2lora-ood-smoke".to_string());
+        let dataset = CodeDataset::load_from_dir(Path::new(&data_dir), &Device::Cpu)?;
+        let summary = dataset.summary();
+        let (cr, ir) = dataset.split(0.2);
+
+        assert!(dataset.len() > 0, "converted dataset should not be empty");
+        assert!(summary.repo_count > 0, "should contain repo ids");
+        assert_eq!(summary.language_count, 1, "OOD data should map to python");
+        assert!(
+            !cr.is_empty() || !ir.is_empty(),
+            "split should produce at least one side"
+        );
+        assert!(
+            dataset
+                .examples
+                .iter()
+                .any(|ex| ex.code_content.contains("assert")),
+            "real assertion rows should include assertion text"
+        );
         Ok(())
     }
 }

@@ -107,7 +107,7 @@ Repository (.py 檔案)
 | 真實模型訓練（Qwen2.5-0.5B, GPU） | ✅ | `test_p6_real_model_training` (忽略) |
 | 推理 CLI（adapt/complete/encode） | ✅ | LoRA adapter safetensors |
 | 完整端到端測試 | ✅ | `test_p7_full_end_to_end_real_inference` (忽略) |
-| 真實資料集（RepoPeftBench） | ✅ | HF Parquet → JSONL 腳本 + loader 測試 |
+| 真實資料集（RepoPeftBench） | ✅ | HF Parquet → JSONL 腳本 + 真實資料 smoke test |
 | 效能調優 | 🟡 | device-side batches + warning 清理；GPU util profiling 待量測 |
 
 8 個常規測試通過；2 個 `#[ignore]` 測試需要 HF Hub / model 存取。
@@ -149,19 +149,23 @@ cargo test test_p7_full_end_to_end_real_inference -- --ignored --nocapture
 # 5. 下載並轉換小型 RepoPeftBench 真實資料樣本
 powershell -ExecutionPolicy Bypass -File scripts/download_code2lora_data.ps1 -MaxRows 1000
 
-# 6. 使用轉換後的真實 JSONL 訓練
+# 6. 用 Rust loader 驗證轉換後的真實資料
+$env:CODE2LORA_REAL_DATA_DIR="data/code2lora-ood"
+cargo test test_real_repopeftbench_jsonl_smoke -- --ignored --nocapture
+
+# 7. 使用轉換後的真實 JSONL 訓練
 cargo run --release -- train -d data/code2lora-ood -o checkpoints -e 1
 
-# 7. 對真實程式碼目錄進行訓練
+# 8. 對真實程式碼目錄進行訓練
 cargo run --release -- train -d ./my-python-project -o checkpoints -e 5
 
-# 8. 為倉庫產生 Adapter
+# 9. 為倉庫產生 Adapter
 cargo run --release -- adapt ./my-python-project -o adapter.safetensors
 
-# 9. 執行 assertion 補全
+# 10. 執行 assertion 補全
 cargo run --release -- complete ./my-python-project adapter.safetensors -o assertion.txt
 
-# 10. 純編碼倉庫（不跑完整管線）
+# 11. 純編碼倉庫（不跑完整管線）
 cargo run --release -- encode ./my-python-project -o repo_emb.embed
 ```
 

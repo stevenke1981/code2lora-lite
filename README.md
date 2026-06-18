@@ -107,7 +107,7 @@ Repository (.py files)
 | Real model training (Qwen2.5-0.5B, GPU) | ✅ | `test_p6_real_model_training` (ignored) |
 | Inference CLI (adapt/complete/encode) | ✅ | LoRA adapter safetensors |
 | Full end-to-end test | ✅ | `test_p7_full_end_to_end_real_inference` (ignored) |
-| Real dataset (RepoPeftBench) | ✅ | HF Parquet → JSONL script + loader test |
+| Real dataset (RepoPeftBench) | ✅ | HF Parquet → JSONL script + real-data smoke test |
 | Performance optimization | 🟡 | Device-side batches + clean warnings; GPU util profiling pending |
 
 8 regular tests pass; 2 ignored tests require HF Hub/model access.
@@ -149,19 +149,23 @@ cargo test test_p7_full_end_to_end_real_inference -- --ignored --nocapture
 # 5. Download and convert a small real RepoPeftBench sample
 powershell -ExecutionPolicy Bypass -File scripts/download_code2lora_data.ps1 -MaxRows 1000
 
-# 6. Train on converted real JSONL
+# 6. Verify the converted real dataset with the Rust loader
+$env:CODE2LORA_REAL_DATA_DIR="data/code2lora-ood"
+cargo test test_real_repopeftbench_jsonl_smoke -- --ignored --nocapture
+
+# 7. Train on converted real JSONL
 cargo run --release -- train -d data/code2lora-ood -o checkpoints -e 1
 
-# 7. Train on a real code directory
+# 8. Train on a real code directory
 cargo run --release -- train -d ./my-python-project -o checkpoints -e 5
 
-# 8. Generate adapter for a repo
+# 9. Generate adapter for a repo
 cargo run --release -- adapt ./my-python-project -o adapter.safetensors
 
-# 9. Run assertion completion
+# 10. Run assertion completion
 cargo run --release -- complete ./my-python-project adapter.safetensors -o assertion.txt
 
-# 10. Encode a repo without the full pipeline
+# 11. Encode a repo without the full pipeline
 cargo run --release -- encode ./my-python-project -o repo_emb.embed
 ```
 
