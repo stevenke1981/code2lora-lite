@@ -19,12 +19,15 @@ pub fn adapt(repo_path: &Path, adapter_output_path: &Path, device: &Device) -> R
     let hn = Code2LoRAHead::new(vb, &hn_config, &varmap)?;
 
     let encoder = RepoEncoder::new(device)?;
-    let emb = encoder.embed_repo(repo_path)?;
+    let emb = encoder.embed_repo_cached(repo_path, Path::new(".cache/embeddings"))?;
     let emb_tensor = emb.to_tensor(device)?;
 
     let all_lora = hn.forward_all(&emb_tensor)?;
-    info!("LoRA adapter generated: {} layers, q shape {:?} per layer", 
-        all_lora.len(), all_lora[0].q.0.shape());
+    info!(
+        "LoRA adapter generated: {} layers, q shape {:?} per layer",
+        all_lora.len(),
+        all_lora[0].q.0.shape()
+    );
 
     // Save via VarMap
     hn.save(adapter_output_path)?;
@@ -55,7 +58,7 @@ pub fn complete(
     let hn = Code2LoRAHead::new(vb, &hn_config, &varmap)?;
 
     let encoder = RepoEncoder::new(&device)?;
-    let emb = encoder.embed_repo(repo_path)?;
+    let emb = encoder.embed_repo_cached(repo_path, Path::new(".cache/embeddings"))?;
     let emb_tensor = emb.to_tensor(&device)?;
 
     base_model.inject_lora_from_hn(&hn, &emb_tensor)?;
@@ -63,7 +66,11 @@ pub fn complete(
     // Generate assertion
     let prompt: Vec<u32> = (1..=50).collect();
     let result = base_model.generate(&prompt, 128)?;
-    let output_text = format!("Generated {} tokens: {:?}", result.len(), &result[..10.min(result.len())]);
+    let output_text = format!(
+        "Generated {} tokens: {:?}",
+        result.len(),
+        &result[..10.min(result.len())]
+    );
     std::fs::write(output_path, &output_text)?;
     info!("Assertion saved to {output_path:?}");
     Ok(())
@@ -73,7 +80,8 @@ pub fn complete(
 pub fn encode(repo_path: &Path, output_path: &Path, device: &Device) -> Result<()> {
     info!("Encoding repo {repo_path:?} → {output_path:?}");
     let encoder = RepoEncoder::new(device)?;
-    let emb = encoder.embed_repo(repo_path)?;
+    let emb = encoder.embed_repo_cached(repo_path, Path::new(".cache/embeddings"))?;
+    info!("Repository embedding dim={}", encoder.embed_dim() * 2);
     emb.save(output_path)?;
     info!("Embedding saved to {output_path:?}");
     Ok(())

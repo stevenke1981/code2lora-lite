@@ -16,13 +16,11 @@ pub struct Code2LoRAModel {
     pub lm_head: candle_nn::Linear,
     pub tokenizer: Tokenizer,
     pub device: Device,
-    pub dtype: DType,
     pub config: qwen2_model::Config,
-    pub hn_config: HypernetworkConfig,
 }
 
 impl Code2LoRAModel {
-    pub fn new(device: &Device, dtype: DType, hn_config: &HypernetworkConfig) -> Result<Self> {
+    pub fn new(device: &Device, dtype: DType, _hn_config: &HypernetworkConfig) -> Result<Self> {
         let api = Api::new().context("HF Hub API")?;
         let model_id = "Qwen/Qwen2.5-Coder-0.5B";
         let repo = api.model(model_id.to_string());
@@ -30,9 +28,7 @@ impl Code2LoRAModel {
         let config: qwen2_model::Config = serde_json::from_slice(&std::fs::read(config_path)?)?;
 
         let weights_paths = collect_safetensors(&repo)?;
-        let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&weights_paths, dtype, device)?
-        };
+        let vb = unsafe { VarBuilder::from_mmaped_safetensors(&weights_paths, dtype, device)? };
 
         // Load the LoRA-capable model (no lm_head)
         let base_model = LoRAModel::new(&config, vb.clone())?;
@@ -46,22 +42,26 @@ impl Code2LoRAModel {
         };
 
         // Load tokenizer
-        let tokenizer_path = repo.get("tokenizer.json")
+        let tokenizer_path = repo
+            .get("tokenizer.json")
             .context("No tokenizer.json for Qwen2.5-Coder-0.5B")?;
         let tokenizer = Tokenizer::from_file(tokenizer_path)
             .map_err(|e| anyhow::anyhow!("Failed to load tokenizer: {e}"))?;
 
-        info!("Qwen2.5-Coder-0.5B loaded: hidden={}, layers={}, heads={}, vocab={}",
-            config.hidden_size, config.num_hidden_layers, config.num_attention_heads, config.vocab_size);
+        info!(
+            "Qwen2.5-Coder-0.5B loaded: hidden={}, layers={}, heads={}, vocab={}",
+            config.hidden_size,
+            config.num_hidden_layers,
+            config.num_attention_heads,
+            config.vocab_size
+        );
 
         Ok(Self {
             base_model,
             lm_head,
             tokenizer,
             device: device.clone(),
-            dtype,
             config,
-            hn_config: hn_config.clone(),
         })
     }
 
@@ -104,7 +104,9 @@ impl Code2LoRAModel {
     // ─── Tokenization ───
 
     fn tokenize(&self, text: &str) -> Result<(Vec<u32>, usize)> {
-        let encoding = self.tokenizer.encode(text, true)
+        let encoding = self
+            .tokenizer
+            .encode(text, true)
             .map_err(|e| anyhow::anyhow!("Tokenization error: {e}"))?;
         let ids = encoding.get_ids().to_vec();
         let max_len = self.config.max_position_embeddings.min(2048);
@@ -122,7 +124,12 @@ impl Code2LoRAModel {
     /// Compute generative (IR) loss for a single (code, repo_emb) pair.
     /// P3: LoRA is injected per-layer via inject_lora_from_hn before the forward pass,
     ///     so the model's attention & MLP projections are truly adapted.
-    fn compute_single_ir_loss(&mut self, hn: &Code2LoRAHead, repo_emb: &Tensor, code_text: &str) -> Result<Tensor> {
+    fn compute_single_ir_loss(
+        &mut self,
+        hn: &Code2LoRAHead,
+        repo_emb: &Tensor,
+        code_text: &str,
+    ) -> Result<Tensor> {
         let (ids, seq_len) = self.tokenize(code_text)?;
         if seq_len < 2 {
             return Ok(Tensor::zeros(&[], DType::F32, &self.device)?);
@@ -140,7 +147,7 @@ impl Code2LoRAModel {
         self.clear_lora();
 
         // Apply lm_head → logits
-        let logits = hidden.apply(&self.lm_head)?;  // (1, seq_len, vocab_size)
+        let logits = hidden.apply(&self.lm_head)?; // (1, seq_len, vocab_size)
 
         // Cross-entropy: predict next token at each position
         let vocab_size = logits.dim(2)?;
@@ -155,7 +162,12 @@ impl Code2LoRAModel {
     }
 
     /// Compute generative (IR) loss over a batch.
-    pub fn compute_ir_loss(&mut self, hn: &Code2LoRAHead, repo_embs: &Tensor, code_texts: &[String]) -> Result<Tensor> {
+    pub fn compute_ir_loss(
+        &mut self,
+        hn: &Code2LoRAHead,
+        repo_embs: &Tensor,
+        code_texts: &[String],
+    ) -> Result<Tensor> {
         let batch_size = code_texts.len();
         if batch_size == 0 {
             return Ok(Tensor::zeros(&[], DType::F32, &self.device)?);
@@ -177,7 +189,12 @@ impl Code2LoRAModel {
 
     /// Compute contrastive (CR) loss over a batch.
     /// Uses adapted code representations with per-layer LoRA injection.
-    pub fn compute_cr_loss(&mut self, hn: &Code2LoRAHead, repo_embs: &Tensor, code_texts: &[String]) -> Result<Tensor> {
+    pub fn compute_cr_loss(
+        &mut self,
+        hn: &Code2LoRAHead,
+        repo_embs: &Tensor,
+        code_texts: &[String],
+    ) -> Result<Tensor> {
         let batch_size = code_texts.len();
         if batch_size < 2 {
             return Ok(Tensor::zeros(&[], DType::F32, &self.device)?);
@@ -225,10 +242,7 @@ impl Code2LoRAModel {
 
         for _step in 0..max_new_tokens {
             let input = Tensor::new(generated.as_slice(), &self.device)?.unsqueeze(0)?;
-            let hidden = self.forward_hidden(&input)?;
-            let seq_len = hidden.dim(1)?;
-            let last_hidden = hidden.narrow(1, seq_len - 1, 1)?;
-            let logits = last_hidden.apply(&self.lm_head)?;
+            let logits = self.forward_logits(&input)?;
             let logits_1d = logits.squeeze(0)?.squeeze(0)?;
             let next_token = logits_1d.argmax(0)?.to_scalar::<u32>()?;
 
@@ -241,7 +255,6 @@ impl Code2LoRAModel {
 
         Ok(generated)
     }
-
 }
 
 /// Collect all safetensors weight paths for a model repo.
@@ -252,18 +265,17 @@ fn collect_safetensors(repo: &hf_hub::api::sync::ApiRepo) -> Result<Vec<std::pat
         return Ok(vec![path]);
     }
     // Read index file to discover shards
-    let index_path = repo.get("model.safetensors.index.json")
+    let index_path = repo
+        .get("model.safetensors.index.json")
         .context("No model.safetensors or model.safetensors.index.json in repo")?;
     let index_text = std::fs::read_to_string(index_path)?;
     let index: serde_json::Value = serde_json::from_str(&index_text)?;
-    let weight_map = index.get("weight_map")
+    let weight_map = index
+        .get("weight_map")
         .and_then(|m| m.as_object())
         .context("Invalid safetensors index: missing weight_map")?;
 
-    let mut shard_names: Vec<&str> = weight_map
-        .values()
-        .filter_map(|v| v.as_str())
-        .collect();
+    let mut shard_names: Vec<&str> = weight_map.values().filter_map(|v| v.as_str()).collect();
     shard_names.sort();
     shard_names.dedup();
 
@@ -359,7 +371,7 @@ mod tests {
             repo_embed_dim: 64,
             llm_hidden_dim: 64,
             llm_intermediate_dim: 64,
-            kv_proj_dim: 32,  // 2 kv_heads × 16 head_dim
+            kv_proj_dim: 32, // 2 kv_heads × 16 head_dim
         };
 
         // ── 3. Create hypernetwork with random weights ──
@@ -397,7 +409,10 @@ mod tests {
         let flat_labels = shift_labels.reshape((15,))?;
         let loss = candle_nn::loss::cross_entropy(&flat_logits, &flat_labels)?;
         let loss_val: f32 = loss.to_scalar::<f32>()?;
-        assert!(loss_val.is_finite(), "loss should be finite, got {loss_val}");
+        assert!(
+            loss_val.is_finite(),
+            "loss should be finite, got {loss_val}"
+        );
         assert!(loss_val > 0.0, "loss should be positive, got {loss_val}");
 
         // ── 8. Verify LoRA path is active: compute loss without LoRA ──
@@ -417,7 +432,13 @@ mod tests {
 
         // ── 9. Backward step via candle Optimizer (as trainer.rs does) ──
         let hn_vars = hn_varmap.all_vars();
-        let params = ParamsAdamW { lr: 0.001, beta1: 0.9, beta2: 0.999, eps: 1e-8, weight_decay: 0.0 };
+        let params = ParamsAdamW {
+            lr: 0.001,
+            beta1: 0.9,
+            beta2: 0.999,
+            eps: 1e-8,
+            weight_decay: 0.0,
+        };
         let mut opt = <AdamW as Optimizer>::new(hn_vars, params)?;
         opt.backward_step(&loss)?;
         // (Gradient flow verified indirectly: backward_step completed without panic)
@@ -433,9 +454,14 @@ mod tests {
             &input_ids.narrow(1, 1, 15)?.reshape((15,))?,
         )?;
         let loss_val2: f32 = loss2.to_scalar::<f32>()?;
-        assert!(loss_val2.is_finite(), "loss2 should be finite, got {loss_val2}");
+        assert!(
+            loss_val2.is_finite(),
+            "loss2 should be finite, got {loss_val2}"
+        );
 
-        println!("P5 integration: loss before={loss_val:.6} after={loss_val2:.6} (backward_step OK)");
+        println!(
+            "P5 integration: loss before={loss_val:.6} after={loss_val2:.6} (backward_step OK)"
+        );
 
         Ok(())
     }
@@ -468,16 +494,22 @@ mod tests {
             ..Default::default()
         };
         let qwen = Code2LoRAModel::new(&device, DType::F32, &hn_cfg)?;
-        eprintln!("P6: model loaded ({:.1}s) hidden={}, intermediate={}, layers={}",
+        eprintln!(
+            "P6: model loaded ({:.1}s) hidden={}, intermediate={}, layers={}",
             start.elapsed().as_secs_f32(),
-            hn_cfg.llm_hidden_dim, hn_cfg.llm_intermediate_dim, hn_cfg.num_layers);
+            hn_cfg.llm_hidden_dim,
+            hn_cfg.llm_intermediate_dim,
+            hn_cfg.num_layers
+        );
 
         // ── 2. Create hypernetwork on GPU ──
         let hn_varmap = VarMap::new();
         let hn_vb = VarBuilder::from_varmap(&hn_varmap, DType::F32, &device);
         let hn = Code2LoRAHead::new(hn_vb, &hn_cfg, &hn_varmap)?;
-        info!("P6: hypernetwork created ({} hidden dim, rank {})",
-            hn_cfg.hidden_dim, hn_cfg.rank);
+        info!(
+            "P6: hypernetwork created ({} hidden dim, rank {})",
+            hn_cfg.hidden_dim, hn_cfg.rank
+        );
 
         // ── 3. Create synthetic dataset ──
         let n_examples = 8;
@@ -501,7 +533,10 @@ mod tests {
         let mut trainer = crate::trainer::Trainer::new(hn, qwen, hn_varmap, train_cfg, device);
         let train_start = Instant::now();
         trainer.train(&dataset)?;
-        info!("P6: training completed in {:.1}s", train_start.elapsed().as_secs_f32());
+        info!(
+            "P6: training completed in {:.1}s",
+            train_start.elapsed().as_secs_f32()
+        );
 
         // ── 5. Cleanup ──
         std::fs::remove_dir_all("p6_checkpoints").ok();

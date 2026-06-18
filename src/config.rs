@@ -43,10 +43,10 @@ impl Default for HypernetworkConfig {
             hidden_dim: 384,
             rank: 8,
             num_layers: 24,
-            repo_embed_dim: 768,  // 384 mean + 384 max pool from MiniLM
+            repo_embed_dim: 768, // 384 mean + 384 max pool from MiniLM
             llm_hidden_dim: 896,
             llm_intermediate_dim: 4864,
-            kv_proj_dim: 128,  // 2 kv_heads × (896/14) head_dim = 128
+            kv_proj_dim: 128, // 2 kv_heads × (896/14) head_dim = 128
         }
     }
 }

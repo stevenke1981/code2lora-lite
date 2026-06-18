@@ -1,9 +1,9 @@
+use crate::config::HypernetworkConfig;
 use anyhow::{Context, Result};
 use candle_core::{Module, Tensor};
 use candle_nn::{Linear, VarBuilder, VarMap};
 use std::collections::HashMap;
 use std::path::Path;
-use crate::config::HypernetworkConfig;
 
 pub type LoRAPair = (Tensor, Tensor);
 
@@ -16,17 +16,6 @@ pub struct LoRAWeights {
     pub gate: LoRAPair,
     pub up: LoRAPair,
     pub down: LoRAPair,
-}
-
-impl LoRAWeights {
-    pub fn get(&self, name: &str) -> Option<&LoRAPair> {
-        match name {
-            "q" => Some(&self.q), "k" => Some(&self.k), "v" => Some(&self.v),
-            "o" => Some(&self.o), "gate" => Some(&self.gate),
-            "up" => Some(&self.up), "down" => Some(&self.down),
-            _ => None,
-        }
-    }
 }
 
 /// Hypernetwork: repo_embedding → per-layer LoRA adapter.
@@ -62,9 +51,17 @@ impl Code2LoRAHead {
             let in_dim = config.lora_in_dim(mod_type);
             let out_dim = config.lora_out_dim(mod_type);
             // A: hidden → rank × in_dim   (A matrix: LoRA projection from in_dim to rank)
-            let ha = candle_nn::linear(hidden_dim, rank * in_dim, vb.pp(format!("head_{mod_type}_a")))?;
+            let ha = candle_nn::linear(
+                hidden_dim,
+                rank * in_dim,
+                vb.pp(format!("head_{mod_type}_a")),
+            )?;
             // B: hidden → out_dim × rank   (B matrix: LoRA projection from rank to out_dim)
-            let hb = candle_nn::linear(hidden_dim, out_dim * rank, vb.pp(format!("head_{mod_type}_b")))?;
+            let hb = candle_nn::linear(
+                hidden_dim,
+                out_dim * rank,
+                vb.pp(format!("head_{mod_type}_b")),
+            )?;
 
             heads_a.insert(mod_type.to_string(), ha);
             heads_b.insert(mod_type.to_string(), hb);
@@ -75,7 +72,8 @@ impl Code2LoRAHead {
             log_scale_b.insert(mod_type.to_string(), sb.to_dtype(dtype)?);
         }
 
-        let layer_emb = candle_nn::embedding(config.num_layers, config.hidden_dim, vb.pp("layer_emb"))?;
+        let layer_emb =
+            candle_nn::embedding(config.num_layers, config.hidden_dim, vb.pp("layer_emb"))?;
 
         Ok(Self {
             linear1,
@@ -109,7 +107,15 @@ impl Code2LoRAHead {
         let up = self.gen_pair(&h, "up")?;
         let down = self.gen_pair(&h, "down")?;
 
-        Ok(LoRAWeights { q, k, v, o, gate, up, down })
+        Ok(LoRAWeights {
+            q,
+            k,
+            v,
+            o,
+            gate,
+            up,
+            down,
+        })
     }
 
     /// Generate distinct LoRA weights for every decoder layer.
@@ -142,7 +148,15 @@ impl Code2LoRAHead {
             let up = self.gen_pair(&h_layer, "up")?;
             let down = self.gen_pair(&h_layer, "down")?;
 
-            all_weights.push(LoRAWeights { q, k, v, o, gate, up, down });
+            all_weights.push(LoRAWeights {
+                q,
+                k,
+                v,
+                o,
+                gate,
+                up,
+                down,
+            });
         }
         Ok(all_weights)
     }
@@ -180,8 +194,8 @@ impl Code2LoRAHead {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use candle_core::{DType, Device};
     use crate::config::HypernetworkConfig;
+    use candle_core::{DType, Device};
 
     #[test]
     fn test_hypernetwork_shapes() -> Result<()> {
@@ -209,23 +223,42 @@ mod tests {
 
         // Test per-layer forward
         let all = hn.forward_all(&input)?;
-        assert_eq!(all.len(), config.num_layers, "should be one weight set per layer");
+        assert_eq!(
+            all.len(),
+            config.num_layers,
+            "should be one weight set per layer"
+        );
         for (i, layer_w) in all.iter().enumerate() {
-            assert_eq!(layer_w.q.0.dims(), &[config.rank, config.llm_hidden_dim],
-                "layer {i} q_A shape");
-            assert_eq!(layer_w.q.1.dims(), &[config.llm_hidden_dim, config.rank],
-                "layer {i} q_B shape");
-            assert_eq!(layer_w.k.0.dims(), &[config.rank, config.llm_hidden_dim],
-                "layer {i} k_A shape");
-            assert_eq!(layer_w.k.1.dims(), &[config.kv_proj_dim, config.rank],
-                "layer {i} k_B shape");
+            assert_eq!(
+                layer_w.q.0.dims(),
+                &[config.rank, config.llm_hidden_dim],
+                "layer {i} q_A shape"
+            );
+            assert_eq!(
+                layer_w.q.1.dims(),
+                &[config.llm_hidden_dim, config.rank],
+                "layer {i} q_B shape"
+            );
+            assert_eq!(
+                layer_w.k.0.dims(),
+                &[config.rank, config.llm_hidden_dim],
+                "layer {i} k_A shape"
+            );
+            assert_eq!(
+                layer_w.k.1.dims(),
+                &[config.kv_proj_dim, config.rank],
+                "layer {i} k_B shape"
+            );
         }
 
         // Verify per-layer weights are actually distinct
         if all.len() >= 2 {
             let diff = all[0].q.0.sub(&all[1].q.0)?;
             let diff_val: f32 = diff.abs()?.sum_all()?.to_scalar::<f32>()?;
-            assert!(diff_val > 0.001, "layers 0 and 1 should have different q_A weights");
+            assert!(
+                diff_val > 0.001,
+                "layers 0 and 1 should have different q_A weights"
+            );
         }
 
         println!("All shapes and per-layer distinctness correct!");

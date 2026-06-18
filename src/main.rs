@@ -13,7 +13,10 @@ mod repo_encoder;
 mod trainer;
 
 #[derive(Parser)]
-#[command(name = "code2lora-lite", about = "Code2LoRA hypernetwork for repo-specific code LLM adapters")]
+#[command(
+    name = "code2lora-lite",
+    about = "Code2LoRA hypernetwork for repo-specific code LLM adapters"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -23,7 +26,7 @@ struct Cli {
 enum Commands {
     /// Train the hypernetwork
     Train {
-        /// Path to the training dataset (directory of .txt or .py files)
+        /// Path to the training dataset (directory of .jsonl, .txt, or .py files)
         #[arg(short, long, default_value = "data")]
         data_dir: String,
         /// Output directory for checkpoints
@@ -75,8 +78,27 @@ fn main() -> Result<()> {
     info!("Using device: {device:?}");
 
     match cli.command {
-        Commands::Train { data_dir, output, epochs, lr, batch_size } => {
+        Commands::Train {
+            data_dir,
+            output,
+            epochs,
+            lr,
+            batch_size,
+        } => {
             let hn_config = config::HypernetworkConfig::default();
+
+            // Load dataset before touching the large base model so bad data paths fail fast.
+            let dataset_path = std::path::PathBuf::from(&data_dir);
+            anyhow::ensure!(
+                dataset_path.exists(),
+                "Data directory {data_dir:?} not found. For real data, run scripts/download_code2lora_data.ps1 first."
+            );
+            let dummy_device = candle_core::Device::Cpu;
+            let dataset = dataset::CodeDataset::load_from_dir(&dataset_path, &dummy_device)?;
+            anyhow::ensure!(
+                !dataset.is_empty(),
+                "No training examples found in {data_dir:?}"
+            );
 
             let train_config = config::TrainConfig {
                 rank: 8,
@@ -105,16 +127,6 @@ fn main() -> Result<()> {
             // Create trainer
             let mut trainer = trainer::Trainer::new(hn, base_model, varmap, train_config, device);
 
-            // Load dataset
-            let dataset_path = std::path::PathBuf::from(&data_dir);
-            let dataset = if dataset_path.exists() {
-                let dummy_device = candle_core::Device::Cpu;
-                dataset::CodeDataset::load_from_dir(&dataset_path, &dummy_device)?
-            } else {
-                info!("Data directory {data_dir:?} not found; using empty dataset");
-                dataset::CodeDataset::new()
-            };
-
             trainer.train(&dataset)?;
         }
         Commands::Adapt { repo_path, output } => {
@@ -124,7 +136,11 @@ fn main() -> Result<()> {
                 &device,
             )?;
         }
-        Commands::Complete { repo_path, adapter, output } => {
+        Commands::Complete {
+            repo_path,
+            adapter,
+            output,
+        } => {
             infer::complete(
                 &std::path::PathBuf::from(repo_path),
                 &std::path::PathBuf::from(adapter),

@@ -23,7 +23,13 @@ pub struct LoRALinear {
 
 impl LoRALinear {
     pub fn new(weight: Tensor, in_dim: usize, out_dim: usize) -> Self {
-        Self { weight, lora_a: None, lora_b: None, in_dim, out_dim }
+        Self {
+            weight,
+            lora_a: None,
+            lora_b: None,
+            in_dim,
+            out_dim,
+        }
     }
 
     pub fn set_lora(&mut self, a: Tensor, b: Tensor) {
@@ -42,6 +48,12 @@ impl LoRALinear {
         let ndim = x.dims().len();
         let orig_shape = x.shape().dims().to_vec();
         let in_dim = orig_shape[ndim - 1];
+        anyhow::ensure!(
+            in_dim == self.in_dim,
+            "LoRALinear expected input dim {}, got {}",
+            self.in_dim,
+            in_dim
+        );
 
         // Flatten to (batch_product, in_dim)
         let batch_product: usize = orig_shape[..ndim - 1].iter().product();
@@ -69,11 +81,17 @@ impl LoRALinear {
 
 impl Module for LoRALinear {
     fn forward(&self, x: &Tensor) -> candle_core::Result<Tensor> {
-        self.forward(x).map_err(|e| candle_core::Error::Msg(format!("{e}")))
+        self.forward(x)
+            .map_err(|e| candle_core::Error::Msg(format!("{e}")))
     }
 }
 
-fn load_lora_linear(vb: &VarBuilder, in_dim: usize, out_dim: usize, name: &str) -> Result<LoRALinear> {
+fn load_lora_linear(
+    vb: &VarBuilder,
+    in_dim: usize,
+    out_dim: usize,
+    name: &str,
+) -> Result<LoRALinear> {
     let ws = vb.get(&[out_dim, in_dim], name)?;
     Ok(LoRALinear::new(ws, in_dim, out_dim))
 }
@@ -86,7 +104,11 @@ struct RotaryEmbedding {
 }
 
 impl RotaryEmbedding {
-    fn new(dtype: DType, cfg: &candle_transformers::models::qwen2::Config, dev: &Device) -> Result<Self> {
+    fn new(
+        dtype: DType,
+        cfg: &candle_transformers::models::qwen2::Config,
+        dev: &Device,
+    ) -> Result<Self> {
         let dim = cfg.hidden_size / cfg.num_attention_heads;
         let max_seq_len = cfg.max_position_embeddings;
         let inv_freq: Vec<f32> = (0..dim)
@@ -99,7 +121,10 @@ impl RotaryEmbedding {
             .to_dtype(dtype)?
             .reshape((max_seq_len, 1))?;
         let freqs = t.matmul(&inv_freq)?;
-        Ok(Self { sin: freqs.sin()?, cos: freqs.cos()? })
+        Ok(Self {
+            sin: freqs.sin()?,
+            cos: freqs.cos()?,
+        })
     }
 
     fn apply(&self, q: &Tensor, k: &Tensor, seqlen_offset: usize) -> Result<(Tensor, Tensor)> {
@@ -128,7 +153,11 @@ pub struct LoRAAttention {
 }
 
 impl LoRAAttention {
-    fn new(rotary_emb: Arc<RotaryEmbedding>, cfg: &candle_transformers::models::qwen2::Config, vb: VarBuilder) -> Result<Self> {
+    fn new(
+        rotary_emb: Arc<RotaryEmbedding>,
+        cfg: &candle_transformers::models::qwen2::Config,
+        vb: VarBuilder,
+    ) -> Result<Self> {
         let hidden_sz = cfg.hidden_size;
         let num_heads = cfg.num_attention_heads;
         let num_kv_heads = cfg.num_key_value_heads;
@@ -137,8 +166,18 @@ impl LoRAAttention {
 
         Ok(Self {
             q_proj: load_lora_linear(&vb.pp("q_proj"), hidden_sz, num_heads * head_dim, "weight")?,
-            k_proj: load_lora_linear(&vb.pp("k_proj"), hidden_sz, num_kv_heads * head_dim, "weight")?,
-            v_proj: load_lora_linear(&vb.pp("v_proj"), hidden_sz, num_kv_heads * head_dim, "weight")?,
+            k_proj: load_lora_linear(
+                &vb.pp("k_proj"),
+                hidden_sz,
+                num_kv_heads * head_dim,
+                "weight",
+            )?,
+            v_proj: load_lora_linear(
+                &vb.pp("v_proj"),
+                hidden_sz,
+                num_kv_heads * head_dim,
+                "weight",
+            )?,
             o_proj: load_lora_linear(&vb.pp("o_proj"), num_heads * head_dim, hidden_sz, "weight")?,
             num_heads,
             num_kv_heads,
@@ -163,7 +202,12 @@ impl LoRAAttention {
         self.o_proj.clear_lora();
     }
 
-    pub fn forward(&mut self, xs: &Tensor, attention_mask: Option<&Tensor>, seqlen_offset: usize) -> Result<Tensor> {
+    pub fn forward(
+        &mut self,
+        xs: &Tensor,
+        attention_mask: Option<&Tensor>,
+        seqlen_offset: usize,
+    ) -> Result<Tensor> {
         let (b_sz, q_len, _) = xs.dims3()?;
 
         let query_states = self.q_proj.forward(xs)?;
@@ -181,7 +225,8 @@ impl LoRAAttention {
             .transpose(1, 2)?;
 
         let (query_states, key_states) =
-            self.rotary_emb.apply(&query_states, &key_states, seqlen_offset)?;
+            self.rotary_emb
+                .apply(&query_states, &key_states, seqlen_offset)?;
 
         let key_states = repeat_kv(key_states, self.num_kv_groups)?.contiguous()?;
         let value_states = repeat_kv(value_states, self.num_kv_groups)?.contiguous()?;
@@ -225,9 +270,11 @@ impl LoRAMLP {
     }
 
     pub fn set_lora(&mut self, lora: &LoRAWeights) {
-        self.gate_proj.set_lora(lora.gate.0.clone(), lora.gate.1.clone());
+        self.gate_proj
+            .set_lora(lora.gate.0.clone(), lora.gate.1.clone());
         self.up_proj.set_lora(lora.up.0.clone(), lora.up.1.clone());
-        self.down_proj.set_lora(lora.down.0.clone(), lora.down.1.clone());
+        self.down_proj
+            .set_lora(lora.down.0.clone(), lora.down.1.clone());
     }
 
     pub fn clear_lora(&mut self) {
@@ -246,7 +293,8 @@ impl LoRAMLP {
 
 impl Module for LoRAMLP {
     fn forward(&self, xs: &Tensor) -> candle_core::Result<Tensor> {
-        self.forward(xs).map_err(|e| candle_core::Error::Msg(format!("{e}")))
+        self.forward(xs)
+            .map_err(|e| candle_core::Error::Msg(format!("{e}")))
     }
 }
 
@@ -260,14 +308,26 @@ pub struct LoRALayer {
 }
 
 impl LoRALayer {
-    fn new(rotary_emb: Arc<RotaryEmbedding>, cfg: &candle_transformers::models::qwen2::Config, vb: VarBuilder) -> Result<Self> {
+    fn new(
+        rotary_emb: Arc<RotaryEmbedding>,
+        cfg: &candle_transformers::models::qwen2::Config,
+        vb: VarBuilder,
+    ) -> Result<Self> {
         let vb_sa = vb.pp("self_attn");
         let vb_mlp = vb.pp("mlp");
         Ok(Self {
             self_attn: LoRAAttention::new(rotary_emb, cfg, vb_sa)?,
             mlp: LoRAMLP::new(cfg, vb_mlp)?,
-            input_layernorm: candle_nn::rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("input_layernorm"))?,
-            post_attention_layernorm: candle_nn::rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("post_attention_layernorm"))?,
+            input_layernorm: candle_nn::rms_norm(
+                cfg.hidden_size,
+                cfg.rms_norm_eps,
+                vb.pp("input_layernorm"),
+            )?,
+            post_attention_layernorm: candle_nn::rms_norm(
+                cfg.hidden_size,
+                cfg.rms_norm_eps,
+                vb.pp("post_attention_layernorm"),
+            )?,
         })
     }
 
@@ -281,7 +341,12 @@ impl LoRALayer {
         self.mlp.clear_lora();
     }
 
-    pub fn forward(&mut self, xs: &Tensor, attention_mask: Option<&Tensor>, seqlen_offset: usize) -> Result<Tensor> {
+    pub fn forward(
+        &mut self,
+        xs: &Tensor,
+        attention_mask: Option<&Tensor>,
+        seqlen_offset: usize,
+    ) -> Result<Tensor> {
         let residual = xs;
         let xs = self.input_layernorm.forward(xs)?;
         let xs = self.self_attn.forward(&xs, attention_mask, seqlen_offset)?;
@@ -306,7 +371,8 @@ pub struct LoRAModel {
 impl LoRAModel {
     pub fn new(cfg: &candle_transformers::models::qwen2::Config, vb: VarBuilder) -> Result<Self> {
         let vb_m = vb.pp("model");
-        let embed_tokens = candle_nn::embedding(cfg.vocab_size, cfg.hidden_size, vb_m.pp("embed_tokens"))?;
+        let embed_tokens =
+            candle_nn::embedding(cfg.vocab_size, cfg.hidden_size, vb_m.pp("embed_tokens"))?;
         let rotary_emb = Arc::new(RotaryEmbedding::new(vb.dtype(), cfg, vb_m.device())?);
         let mut layers = Vec::with_capacity(cfg.num_hidden_layers);
         let vb_l = vb_m.pp("layers");
@@ -325,7 +391,12 @@ impl LoRAModel {
         })
     }
 
-    fn prepare_causal_attention_mask(&self, b_size: usize, tgt_len: usize, seqlen_offset: usize) -> Result<Tensor> {
+    fn prepare_causal_attention_mask(
+        &self,
+        b_size: usize,
+        tgt_len: usize,
+        seqlen_offset: usize,
+    ) -> Result<Tensor> {
         let sw = self.config.sliding_window;
         let mask: Vec<_> = (0..tgt_len)
             .flat_map(|i| {
@@ -345,16 +416,26 @@ impl LoRAModel {
         } else {
             mask
         };
-        Ok(mask.expand((b_size, 1, tgt_len, tgt_len + seqlen_offset))?.to_dtype(self.dtype)?)
+        Ok(mask
+            .expand((b_size, 1, tgt_len, tgt_len + seqlen_offset))?
+            .to_dtype(self.dtype)?)
     }
 
-    pub fn forward(&mut self, input_ids: &Tensor, seqlen_offset: usize, attn_mask: Option<&Tensor>) -> Result<Tensor> {
+    pub fn forward(
+        &mut self,
+        input_ids: &Tensor,
+        seqlen_offset: usize,
+        attn_mask: Option<&Tensor>,
+    ) -> Result<Tensor> {
         let (b_size, seq_len) = input_ids.dims2()?;
         let attention_mask: Option<Tensor> = match attn_mask {
             Some(mask) => Some(self.prepare_attention_mask(mask)?),
             None => {
-                if seq_len <= 1 { None }
-                else { Some(self.prepare_causal_attention_mask(b_size, seq_len, seqlen_offset)?) }
+                if seq_len <= 1 {
+                    None
+                } else {
+                    Some(self.prepare_causal_attention_mask(b_size, seq_len, seqlen_offset)?)
+                }
             }
         };
         let mut xs = self.embed_tokens.forward(input_ids)?;

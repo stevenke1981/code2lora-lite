@@ -35,16 +35,26 @@ impl RepoEmbedding {
     }
 
     pub fn load(path: &Path) -> Result<Self> {
-        let content = fs::read_to_string(path)?;
-        let header_end = content.find('\n').ok_or_else(|| anyhow::anyhow!("Invalid header"))?;
-        let header = &content[..header_end];
+        let content = fs::read(path)?;
+        let header_end = content
+            .iter()
+            .position(|b| *b == b'\n')
+            .ok_or_else(|| anyhow::anyhow!("Invalid header"))?;
+        let header = std::str::from_utf8(&content[..header_end])?;
         let dim: usize = header
             .strip_prefix("CODE2LORA_EMBED_V1:")
             .ok_or_else(|| anyhow::anyhow!("Bad header prefix"))?
             .parse()?;
         let byte_start = header_end + 1;
-        let bytes = &content.as_bytes()[byte_start..];
-        let data: Vec<f32> = bytes.chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap())).collect();
+        let bytes = &content[byte_start..];
+        anyhow::ensure!(
+            bytes.len() % std::mem::size_of::<f32>() == 0,
+            "Embedding payload is not f32-aligned"
+        );
+        let data: Vec<f32> = bytes
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+            .collect();
         anyhow::ensure!(data.len() == dim, "Dim mismatch");
         Ok(Self { data })
     }
@@ -70,22 +80,25 @@ impl RepoEncoder {
         let repo = api.model(model_id.to_string());
 
         let config_path = repo.get("config.json")?;
-        let weights_path = repo.get("model.safetensors")
+        let weights_path = repo
+            .get("model.safetensors")
             .context("No safetensors for all-MiniLM-L6-v2")?;
-        let tokenizer_path = repo.get("tokenizer.json")
+        let tokenizer_path = repo
+            .get("tokenizer.json")
             .context("No tokenizer.json for all-MiniLM-L6-v2")?;
 
         let config: BertConfig = serde_json::from_slice(&std::fs::read(config_path)?)?;
-        info!("BERT config: hidden={}, layers={}, heads={}",
-            config.hidden_size, config.num_hidden_layers, config.num_attention_heads);
+        info!(
+            "BERT config: hidden={}, layers={}, heads={}",
+            config.hidden_size, config.num_hidden_layers, config.num_attention_heads
+        );
 
         let vocab_size = config.vocab_size;
         let max_pos = config.max_position_embeddings;
         let hidden_size = config.hidden_size;
 
-        let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&[weights_path], DType::F32, device)?
-        };
+        let vb =
+            unsafe { VarBuilder::from_mmaped_safetensors(&[weights_path], DType::F32, device)? };
 
         let model = BertModel::load(vb, &config)?;
 
@@ -169,7 +182,8 @@ impl RepoEncoder {
 
     pub fn embed_repo_cached(&self, repo_path: &Path, cache_dir: &Path) -> Result<RepoEmbedding> {
         fs::create_dir_all(cache_dir)?;
-        let repo_name = repo_path.file_name()
+        let repo_name = repo_path
+            .file_name()
             .unwrap_or_else(|| repo_path.as_os_str())
             .to_string_lossy();
         let cache_path = cache_dir.join(format!("{repo_name}.embed"));
@@ -193,7 +207,9 @@ impl RepoEncoder {
 
     /// Embed a single text chunk using BERT mean pooling + L2 normalize.
     fn embed_text(&self, text: &str) -> Result<Vec<f32>> {
-        let encoding = self.tokenizer.encode(text, true)
+        let encoding = self
+            .tokenizer
+            .encode(text, true)
             .map_err(|e| anyhow::anyhow!("Tokenization failed: {e}"))?;
 
         let ids = encoding.get_ids();
@@ -213,8 +229,15 @@ impl RepoEncoder {
     }
 
     /// BERT forward → mean pool → L2 normalize → return Vec<f32>
-    fn forward_pool(&self, input_ids: &Tensor, token_type_ids: &Tensor, attn_mask: &Tensor) -> Result<Vec<f32>> {
-        let hidden = self.model.forward(input_ids, token_type_ids, Some(attn_mask))?;
+    fn forward_pool(
+        &self,
+        input_ids: &Tensor,
+        token_type_ids: &Tensor,
+        attn_mask: &Tensor,
+    ) -> Result<Vec<f32>> {
+        let hidden = self
+            .model
+            .forward(input_ids, token_type_ids, Some(attn_mask))?;
         // hidden: (1, seq_len, 384)
 
         // Mean pool (excluding padding)
@@ -275,11 +298,41 @@ impl RepoEncoder {
     fn compute_file_weight(&self, path: &Path, content: &str) -> f32 {
         let path_str = path.to_string_lossy().to_lowercase();
         let size_weight = (content.len() as f32).ln_1p().min(10.0) / 10.0;
-        let path_weight = if path_str.contains("test") { 0.8 }
-            else if path_str.contains("__init__") { 0.6 }
-            else if path_str.contains("src/") || path_str.contains("/lib/") { 1.0 }
-            else { 0.5 };
-        let name_weight = if path_str.ends_with("main.py") || path_str.ends_with("core.py") { 1.2 } else { 1.0 };
+        let path_weight = if path_str.contains("test") {
+            0.8
+        } else if path_str.contains("__init__") {
+            0.6
+        } else if path_str.contains("src/") || path_str.contains("/lib/") {
+            1.0
+        } else {
+            0.5
+        };
+        let name_weight = if path_str.ends_with("main.py") || path_str.ends_with("core.py") {
+            1.2
+        } else {
+            1.0
+        };
         0.3 * size_weight + 0.5 * path_weight + 0.2 * name_weight
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_repo_embedding_binary_round_trip() -> Result<()> {
+        let path =
+            std::env::temp_dir().join(format!("code2lora-embed-test-{}.embed", std::process::id()));
+        let embedding = RepoEmbedding {
+            data: vec![0.0, 1.25, -2.5, 3.75],
+        };
+
+        embedding.save(&path)?;
+        let loaded = RepoEmbedding::load(&path)?;
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(loaded.data, embedding.data);
+        Ok(())
     }
 }

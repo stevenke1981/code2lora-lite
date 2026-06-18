@@ -107,10 +107,10 @@ Repository (.py files)
 | Real model training (Qwen2.5-0.5B, GPU) | ✅ | `test_p6_real_model_training` (ignored) |
 | Inference CLI (adapt/complete/encode) | ✅ | CLI skeleton |
 | Full end-to-end test | 🟡 | Not yet |
-| Real dataset (RepoPeftBench) | 🟡 | Not yet |
-| Performance optimization | ⬜ | Todo |
+| Real dataset (RepoPeftBench) | ✅ | HF Parquet → JSONL script + loader test |
+| Performance optimization | 🟡 | Device-side batches + clean warnings; GPU util profiling pending |
 
-5 regular tests pass; 1 ignored test requires HF Hub access and CUDA.
+7 regular tests pass; 1 ignored test requires HF Hub access and CUDA.
 
 ---
 
@@ -143,16 +143,22 @@ cargo test
 # 3. Train on synthetic data with real Qwen2.5-Coder-0.5B (requires GPU + HF)
 cargo test test_p6_real_model_training -- --ignored --nocapture
 
-# 4. Train on a real code directory
+# 4. Download and convert a small real RepoPeftBench sample
+powershell -ExecutionPolicy Bypass -File scripts/download_code2lora_data.ps1 -MaxRows 1000
+
+# 5. Train on converted real JSONL
+cargo run --release -- train -d data/code2lora-ood -o checkpoints -e 1
+
+# 6. Train on a real code directory
 cargo run --release -- train -d ./my-python-project -o checkpoints -e 5
 
-# 5. Generate adapter for a repo
+# 7. Generate adapter for a repo
 cargo run --release -- adapt ./my-python-project -o adapter.safetensors
 
-# 6. Run assertion completion
+# 8. Run assertion completion
 cargo run --release -- complete ./my-python-project adapter.safetensors -o assertion.txt
 
-# 7. Encode a repo without the full pipeline
+# 9. Encode a repo without the full pipeline
 cargo run --release -- encode ./my-python-project -o repo_emb.embed
 ```
 
@@ -168,7 +174,7 @@ cargo run --release -- encode ./my-python-project -o repo_emb.embed
 code2lora-lite train [OPTIONS]
 
 Options:
-  -d, --data-dir <DIR>      Directory of .py/.txt files for training
+  -d, --data-dir <DIR>      Directory of .jsonl/.py/.txt files for training
   -o, --output <DIR>        Checkpoint output directory  [default: checkpoints]
   -e, --epochs <N>          Number of epochs  [default: 10]
       --lr <LR>             Learning rate  [default: 1e-4]
@@ -235,9 +241,11 @@ code2lora-lite/
 │   ├── hypernetwork.rs         # Code2LoRAHead: MLP + 7 head pairs
 │   ├── qwen2_lora.rs           # Custom LoRALinear/LoRAAttention/LoRAMLP/LoRAModel
 │   ├── base_llm.rs             # Code2LoRAModel orchestrator + tests
-│   ├── dataset.rs              # CodeDataset + synthetic data generation
+│   ├── dataset.rs              # CodeDataset + RepoPeftBench JSONL loader
 │   ├── trainer.rs              # Training loop (CR/IR, AdamW, validation)
 │   └── infer.rs                # adapt/complete/encode pipeline (skeleton)
+├── scripts/
+│   └── download_code2lora_data.ps1  # HF Parquet download + JSONL conversion
 ```
 
 ---
@@ -249,7 +257,7 @@ code2lora-lite/
 | Framework | Python (PyTorch) | Rust (Candle 0.10) |
 | Base model | Qwen2.5-Coder-1.5B | Qwen2.5-Coder-0.5B |
 | LoRA rank | 16 | 8 |
-| Training data | RepoPeftBench (604 repos, 40K tasks) | Synthetic data (P6), real data TBD |
+| Training data | RepoPeftBench (604 repos, 40K tasks) | Synthetic data + converted RepoPeftBench JSONL |
 | Quantization | — | fp32 (no quantization) |
 | RepoEncoder embedding | 768-dim (concat mean+max of MiniLM) | ✅ Same |
 | Hypernetwork MLP | 768→768→384 | 768→384→384 (simplified) |

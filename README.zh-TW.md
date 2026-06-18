@@ -107,10 +107,10 @@ Repository (.py 檔案)
 | 真實模型訓練（Qwen2.5-0.5B, GPU） | ✅ | `test_p6_real_model_training` (忽略) |
 | 推理 CLI（adapt/complete/encode） | ✅ | CLI 骨架完成 |
 | 完整端到端測試 | 🟡 | 尚未 |
-| 真實資料集（RepoPeftBench） | 🟡 | 尚未 |
-| 效能調優 | ⬜ | 待辦 |
+| 真實資料集（RepoPeftBench） | ✅ | HF Parquet → JSONL 腳本 + loader 測試 |
+| 效能調優 | 🟡 | device-side batches + warning 清理；GPU util profiling 待量測 |
 
-5 個常規測試通過；1 個 `#[ignore]` 測試需要 HF Hub 存取權與 CUDA。
+7 個常規測試通過；1 個 `#[ignore]` 測試需要 HF Hub 存取權與 CUDA。
 
 ---
 
@@ -143,16 +143,22 @@ cargo test
 # 3. 使用真實 Qwen2.5-Coder-0.5B 在合成資料上訓練（需要 GPU + HF）
 cargo test test_p6_real_model_training -- --ignored --nocapture
 
-# 4. 對真實程式碼目錄進行訓練
+# 4. 下載並轉換小型 RepoPeftBench 真實資料樣本
+powershell -ExecutionPolicy Bypass -File scripts/download_code2lora_data.ps1 -MaxRows 1000
+
+# 5. 使用轉換後的真實 JSONL 訓練
+cargo run --release -- train -d data/code2lora-ood -o checkpoints -e 1
+
+# 6. 對真實程式碼目錄進行訓練
 cargo run --release -- train -d ./my-python-project -o checkpoints -e 5
 
-# 5. 為倉庫產生 Adapter
+# 7. 為倉庫產生 Adapter
 cargo run --release -- adapt ./my-python-project -o adapter.safetensors
 
-# 6. 執行 assertion 補全
+# 8. 執行 assertion 補全
 cargo run --release -- complete ./my-python-project adapter.safetensors -o assertion.txt
 
-# 7. 純編碼倉庫（不跑完整管線）
+# 9. 純編碼倉庫（不跑完整管線）
 cargo run --release -- encode ./my-python-project -o repo_emb.embed
 ```
 
@@ -168,7 +174,7 @@ cargo run --release -- encode ./my-python-project -o repo_emb.embed
 code2lora-lite train [選項]
 
 選項：
-  -d, --data-dir <DIR>      訓練用的 .py/.txt 檔案目錄
+  -d, --data-dir <DIR>      訓練用的 .jsonl/.py/.txt 檔案目錄
   -o, --output <DIR>        Checkpoint 輸出目錄  [預設: checkpoints]
   -e, --epochs <N>          Epoch 數  [預設: 10]
       --lr <LR>             學習率  [預設: 1e-4]
@@ -235,9 +241,11 @@ code2lora-lite/
 │   ├── hypernetwork.rs         # Code2LoRAHead：MLP + 7 組輸出頭
 │   ├── qwen2_lora.rs           # 自訂 LoRALinear/LoRAAttention/LoRAMLP/LoRAModel
 │   ├── base_llm.rs             # Code2LoRAModel 協調器 + 測試
-│   ├── dataset.rs              # CodeDataset + 合成資料生成
+│   ├── dataset.rs              # CodeDataset + RepoPeftBench JSONL loader
 │   ├── trainer.rs              # 訓練迴圈（CR/IR, AdamW, 驗證）
 │   └── infer.rs                # adapt/complete/encode 管線（骨架）
+├── scripts/
+│   └── download_code2lora_data.ps1  # HF Parquet 下載 + JSONL 轉換
 ```
 
 ---
@@ -249,7 +257,7 @@ code2lora-lite/
 | 框架 | Python (PyTorch) | Rust (Candle 0.10) |
 | 基底模型 | Qwen2.5-Coder-1.5B | Qwen2.5-Coder-0.5B |
 | LoRA rank | 16 | 8 |
-| 訓練資料 | RepoPeftBench（604 倉庫，40K 任務） | 合成資料（P6），真實資料待加入 |
+| 訓練資料 | RepoPeftBench（604 倉庫，40K 任務） | 合成資料 + 轉換後 RepoPeftBench JSONL |
 | 量化 | — | fp32（無量化） |
 | RepoEncoder 嵌入 | 768 維（MiniML 均值+最大值串接） | ✅ 相同 |
 | 超網路 MLP | 768→768→384 | 768→384→384（簡化） |

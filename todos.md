@@ -50,8 +50,9 @@
 - [x] RepoEmbedding 資料結構（768-dim f32 vec）
 - [x] BatchIterator（依 batch_size 分割）
 - [x] generate_synthetic() 整合測試用合成資料
-- [ ] 下載 HF 真實 RepoPeftBench 資料集
-- [ ] 完整 CR/IR 分割
+- [x] 下載/轉換 HF 真實 RepoPeftBench 資料集（`scripts/download_code2lora_data.ps1`）
+- [x] JSONL 真實資料 loader（支援 `input_prefix` / `target_value` / split 欄位）
+- [x] 完整 CR/IR 分割（優先使用官方 split，否則 ratio fallback）
 
 ## P5: Trainer
 
@@ -75,6 +76,7 @@
 - [x] `adapt` 命令實現（main.rs → infer::adapt）
 - [x] `complete` 命令實現（main.rs → infer::complete）
 - [x] `encode` 命令實現（main.rs → infer::encode）
+- [x] Repo embedding cache round-trip 修正（binary-safe load）
 - [ ] RepoEncoder → adapt → complete 完整端到端測試
 
 ## P8: Polish
@@ -82,5 +84,7 @@
 - [x] Error handling（thiserror + anyhow）
 - [x] Logging（env_logger, info 層級）
 - [x] README 與專案說明（中英文）
-- [ ] 效能調優（GPU util > 60%）
-- [ ] 移除 dead code warnings
+- [x] 效能調優：BatchIterator 直接在訓練 device 建 tensor，減少 CPU→GPU batch 搬移
+- [x] 效能調優：adapt / complete / encode 使用 repo embedding cache
+- [ ] 效能量測：GPU util > 60%（需真實 GPU profiling）
+- [x] 移除 dead code warnings（`cargo test --no-default-features` 無 warnings）
