@@ -231,8 +231,9 @@ impl CodeDataset {
         for ex in &self.examples {
             let split = ex.split.to_ascii_lowercase();
             has_explicit_split |= split != "train";
-            if split.contains("cross")
-                || split.contains("ood")
+            // RepoPeftBench snapshots uses: cr_val, cr_test, ood_test, train
+            if split.starts_with("cr_")
+                || split.starts_with("ood_")
                 || split == "test"
                 || split == "val"
                 || split == "validation"
@@ -396,6 +397,70 @@ mod tests {
                 .any(|ex| ex.code_content.contains("assert")),
             "real assertion rows should include assertion text"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_repopeftbench_jsonl_with_embeddings() -> Result<()> {
+        // Build a 3-row snippet that mimics what prepare_repopeftbench.ps1 outputs
+        let emb = vec![0.1f32; 768];
+        let rows = vec![
+            serde_json::json!({
+                "repo_id": "owner/repo1",
+                "cross_repo_split": "train",
+                "in_repo_split": "train",
+                "file_path": "tests/test_a.py",
+                "input_prefix": "def test_a():\n    assert answer() ==",
+                "target_value": "42",
+                "repo_embedding": emb,
+            }),
+            serde_json::json!({
+                "repo_id": "owner/repo1",
+                "cross_repo_split": "train",
+                "in_repo_split": "val",
+                "file_path": "tests/test_b.py",
+                "input_prefix": "def test_b():\n    assert result ==",
+                "target_value": "True",
+                "repo_embedding": emb,
+            }),
+            serde_json::json!({
+                "repo_id": "owner/repo2",
+                "cross_repo_split": "cr_val",
+                "in_repo_split": "train",
+                "file_path": "tests/test_c.py",
+                "input_prefix": "def test_c():\n    assert foo() ==",
+                "target_value": "\"hello\"",
+                "repo_embedding": vec![0.2f32; 768],
+            }),
+        ];
+
+        let tmp = std::env::temp_dir()
+            .join(format!("repopeftbench-test-{}.jsonl", std::process::id()));
+        let jsonl: String = rows.iter().map(|r| r.to_string() + "\n").collect();
+        std::fs::write(&tmp, &jsonl)?;
+
+        let examples = CodeDataset::load_jsonl(&tmp)?;
+        std::fs::remove_file(&tmp).ok();
+
+        assert_eq!(examples.len(), 3);
+        assert_eq!(examples[0].repo_id, "owner/repo1");
+        assert_eq!(examples[0].repo_embedding.len(), 768);
+        assert!(examples[0].code_content.contains("def test_a()"));
+        assert!(examples[0].code_content.contains("42"));
+        assert_eq!(examples[0].split, "train");
+        // split uses cross_repo_split first, then in_repo_split, then "train"
+        // row 2: cross_repo_split="train", in_repo_split="val" → split="train"
+        assert_eq!(examples[1].split, "train");
+
+        // Build dataset and verify split logic
+        let dataset = CodeDataset { examples };
+        let (cr, ir) = dataset.split(0.2);
+        // repo2 is cr_val → goes to CR, repo1 train/val → goes to IR
+        // repo2 is cr_val → goes to CR, repo1 train/val → goes to IR
+        assert_eq!(cr.len(), 1, "repo2 is CR val");
+        assert_eq!(cr[0].repo_id, "owner/repo2");
+        assert_eq!(ir.len(), 2, "repo1 rows are training");
+
         Ok(())
     }
 }
