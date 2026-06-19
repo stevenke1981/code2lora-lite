@@ -181,6 +181,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-context.ps1 -R
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-context.ps1 -RepoPath ./my-python-project -MinReduction 0.80
 
 # Audit a real agent session after recording opened raw files
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-open.ps1 `
+  -RepoPath ./my-python-project `
+  -Files AGENTS.md,src/lib.rs
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-session-audit.ps1 `
   -RepoPath ./my-python-project `
   -OpenedFilesPath .code2lora/agent-context/opened-files.txt
@@ -274,6 +277,7 @@ This command writes:
 - `audit.json`: pass/fail gate for the required token-reduction ratio
 - `session-audit.json`: pass/fail estimate for context pack plus raw files the
   agent actually opened
+- `opened-files.txt`: raw files recorded by `scripts/agent-open.ps1`
 - `codex-prompt.md`: prompt stub for Codex sessions
 - `opencode-prompt.md`: prompt stub for OpenCode sessions
 - `Symbol Map`: Rust/PowerShell entry points so agents can navigate without
@@ -291,6 +295,8 @@ enforced instead of being only informational.
 For end-of-task evidence, `scripts/agent-session-audit.ps1` compares the raw
 repository estimate with `context.md` plus the raw files listed in
 `.code2lora/agent-context/opened-files.txt`.
+Use `scripts/agent-open.ps1` when reading raw files so the opened-files log is
+maintained automatically.
 
 ---
 
