@@ -32,9 +32,10 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
   the compact context pack before opening broad source files.
 - `scripts/agent-context.ps1` is the one-command Windows wrapper for humans,
   Codex, and OpenCode.
-- Current self-run evidence for this repo: raw estimate 52,449 tokens,
+- The wrapper writes `audit.json` and fails non-zero when `-MinReduction` is not met.
+- Current self-run evidence for this repo: raw estimate 52,982 tokens,
   compact context estimate 1,551 tokens, 160 symbols included, estimated
-  reduction 97.0%.
+  reduction 97.1%.
 
 ## P7: Real Dataset Acceptance
 
@@ -50,6 +51,7 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
 
 - [x] Provide a no-GPU `agent-context` path for Codex/OpenCode token reduction.
 - [x] Write `metrics.json` with raw/context token estimates and reduction ratio.
+- [x] Write `audit.json` and fail the wrapper when the configured token-reduction gate is missed.
 - [ ] Measure prepare/train/adapt/complete wall time on CPU and CUDA.
 - [ ] Capture GPU utilization during a real tiny-train run.
 - [ ] Confirm repo embedding cache hits on repeated `adapt` / `encode` runs.
