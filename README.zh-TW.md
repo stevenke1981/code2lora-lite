@@ -18,6 +18,7 @@
 - [快速開始](#快速開始)
 - [Human + Agents 使用說明](USAGE.md)
 - [CLI 指令參考](#cli-指令參考)
+- [Agent 自動載入 Hook](#agent-自動載入-hook)
 - [專案結構](#專案結構)
 - [與論文的差異](#與論文的差異)
 - [論文與引用](#論文與引用)
@@ -375,6 +376,28 @@ Windows 使用 `scripts/install-mcp-config.ps1`，Linux/macOS + PowerShell 7+
 使用 `scripts/install-mcp-config.sh`，可將 server entry merge 進本機
 Codex/OpenCode config；寫入前會備份，並先跑 smoke-test gate。
 
+## Agent 自動載入 Hook
+
+本 repo 內建 project-local OpenCode config：`opencode.jsonc`，會載入
+`hooks/code2lora-autoload.mjs`。支援讀取 project config 的 OpenCode client
+啟動 chat system context transform 時，hook 會在缺少
+`.code2lora/agent-context/context.md` 時自動刷新 compact context，並將它注入
+chat system context，讓 agent 在打開大量原始碼前先讀 Code2LoRA compact pack。
+
+hook 是 repo-local，且只使用 Node.js 內建模組。若要把設定複製到全域 OpenCode
+config，可參考 `mcp/opencode.autoload.example.jsonc` 的最小 plugin snippet。
+
+常用選項：
+
+- `refresh`：預設 `missing`；若設為 `always`，每次 chat system context transform
+  都會重新產生 context。
+- `contextDir`：context pack 目錄，預設 `.code2lora/agent-context`。
+- `maxChars`：注入 system context 的最大字元數；超過會加 marker 後截斷。
+- `maxFiles` 與 `minReduction`：hook 需要刷新 context 時會轉交給
+  `scripts/agent-context.ps1`。
+- `strict`：可選 boolean；設為 true 時，刷新或讀取 context 失敗會讓 hook 失敗，
+  而不是略過注入。
+
 ---
 
 ## 專案結構
@@ -383,11 +406,14 @@ Codex/OpenCode config；寫入前會備份，並先跑 smoke-test gate。
 code2lora-lite/
 ├── Cargo.toml                  # Rust 專案設定
 ├── AGENTS.md                   # Codex/OpenCode compact-context 啟動規則
+├── opencode.jsonc              # repo-local OpenCode autoload-hook config
 ├── README.md                   # 英文說明文件
 ├── README.zh-TW.md             # 繁體中文說明文件（本檔案）
 ├── spec.md                     # 原始規格文件
 ├── plan.md                     # 實作計畫
 ├── todos.md                    # 進度追蹤
+├── hooks/
+│   └── code2lora-autoload.mjs  # OpenCode hook，自動注入 compact context
 ├── src/
 │   ├── main.rs                 # CLI 入口（clap 4 子命令）
 │   ├── config.rs               # HypernetworkConfig + TrainConfig
@@ -412,7 +438,8 @@ code2lora-lite/
 │   └── prepare_repopeftbench.ps1   # HF Parquet 下載 + JSONL 轉換
 ├── mcp/
 │   ├── codex.example.toml          # Codex MCP config 範例
-│   └── opencode.example.jsonc      # OpenCode MCP config 範例
+│   ├── opencode.example.jsonc      # OpenCode MCP config 範例
+│   └── opencode.autoload.example.jsonc # OpenCode autoload-hook 範例
 ```
 
 ---

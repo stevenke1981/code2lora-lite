@@ -1,0 +1,17 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  // Repo-local hook: auto-load .code2lora/agent-context/context.md into the
+  // chat system context. The hook refreshes the context pack when it is missing.
+  "plugin": [
+    [
+      "./hooks/code2lora-autoload.mjs",
+      {
+        "refresh": "missing",
+        "contextDir": ".code2lora/agent-context",
+        "maxChars": 24000,
+        "maxFiles": 24,
+        "minReduction": 0.8
+      }
+    ]
+  ]
+}

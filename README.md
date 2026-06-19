@@ -18,6 +18,7 @@ A minimal, dependency-light Rust implementation of **[Code2LoRA](https://arxiv.o
 - [Quick Start](#quick-start)
 - [Human + Agents Usage Guide](USAGE.md)
 - [CLI Reference](#cli-reference)
+- [Agent Autoload Hook](#agent-autoload-hook)
 - [Project Structure](#project-structure)
 - [Differences from the Paper](#differences-from-the-paper)
 - [Paper & Citation](#paper--citation)
@@ -386,6 +387,30 @@ Use `scripts/install-mcp-config.ps1` on Windows, or
 server entry into local Codex/OpenCode config files with backups and a
 smoke-test gate.
 
+## Agent Autoload Hook
+
+This repo includes a project-local OpenCode config, `opencode.jsonc`, that loads
+`hooks/code2lora-autoload.mjs`. On OpenCode clients that load project configs,
+the hook refreshes `.code2lora/agent-context/context.md` when it is missing and
+injects the compact context into the chat system context before the agent opens
+broad source files.
+
+The hook is intentionally repo-local and uses only Node.js built-ins. For global
+or copied OpenCode configs, use `mcp/opencode.autoload.example.jsonc` as the
+minimal plugin snippet.
+
+Config options:
+
+- `refresh`: `missing` by default; use `always` to regenerate on every chat
+  system-context transform.
+- `contextDir`: context-pack directory, default `.code2lora/agent-context`.
+- `maxChars`: maximum injected context size; oversized context is truncated with
+  a marker.
+- `maxFiles` and `minReduction`: forwarded to `scripts/agent-context.ps1` when
+  the hook needs to refresh the compact context.
+- `strict`: optional boolean; when true, context refresh/read failures fail the
+  hook instead of silently skipping injection.
+
 ---
 
 ## Project Structure
@@ -394,11 +419,14 @@ smoke-test gate.
 code2lora-lite/
 ├── Cargo.toml                  # Rust project manifest
 ├── AGENTS.md                   # Codex/OpenCode compact-context startup rule
+├── opencode.jsonc              # Repo-local OpenCode autoload-hook config
 ├── README.md                   # This file
 ├── README.zh-TW.md             # Traditional Chinese documentation
 ├── spec.md                     # Original specification document
 ├── plan.md                     # Implementation plan
 ├── todos.md                    # Progress tracking
+├── hooks/
+│   └── code2lora-autoload.mjs  # OpenCode hook that injects compact context
 ├── src/
 │   ├── main.rs                 # CLI entry point (clap 4 subcommands)
 │   ├── config.rs               # HypernetworkConfig + TrainConfig
@@ -423,7 +451,8 @@ code2lora-lite/
 │   └── prepare_repopeftbench.ps1   # HF Parquet download + JSONL conversion
 ├── mcp/
 │   ├── codex.example.toml          # Codex MCP config example
-│   └── opencode.example.jsonc      # OpenCode MCP config example
+│   ├── opencode.example.jsonc      # OpenCode MCP config example
+│   └── opencode.autoload.example.jsonc # OpenCode autoload-hook example
 ```
 
 ---

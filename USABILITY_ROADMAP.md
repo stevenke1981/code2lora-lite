@@ -70,6 +70,9 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
   Codex/OpenCode config files with backups and a smoke-test gate.
 - `scripts/install-mcp-config.sh` provides the Linux/macOS equivalent using
   `pwsh`, Python stdlib, backups, and the same smoke-test gate.
+- `opencode.jsonc` loads `hooks/code2lora-autoload.mjs`, which injects the
+  compact context into OpenCode chat system context and refreshes it when
+  missing.
 - Current machine install evidence: `C:\Users\eda\.codex\config.toml` and
   `C:\Users\eda\.config\opencode\opencode.jsonc` contain `code2lora-lite`
   MCP server entries pointing at this repo.
@@ -101,6 +104,7 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
 - [x] Provide `scripts/agent-open.ps1` to auto-record raw files opened by agents.
 - [x] Provide MCP stdio wrapper and smoke test for Codex/OpenCode-compatible clients.
 - [x] Provide an installer that writes Codex/OpenCode MCP config entries with backups.
+- [x] Provide an OpenCode autoload hook that injects compact context from project config.
 - [ ] Measure prepare/train/adapt/complete wall time on CPU and CUDA.
 - [ ] Capture GPU utilization during a real tiny-train run.
 - [ ] Confirm repo embedding cache hits on repeated `adapt` / `encode` runs.

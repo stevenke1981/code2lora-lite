@@ -1,0 +1,16 @@
+{
+  // Add this to OpenCode config to auto-load the compact Code2LoRA context
+  // into each chat session's system context.
+  "plugin": [
+    [
+      "./hooks/code2lora-autoload.mjs",
+      {
+        "refresh": "missing",
+        "contextDir": ".code2lora/agent-context",
+        "maxChars": 24000,
+        "maxFiles": 24,
+        "minReduction": 0.8
+      }
+    ]
+  ]
+}

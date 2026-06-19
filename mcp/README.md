@@ -41,6 +41,13 @@ MCP gate.
 Use the files in this directory as repo-local examples. They are intentionally
 not installed into global Codex/OpenCode config automatically.
 
+- `codex.example.toml`: Codex MCP server entry.
+- `opencode.example.jsonc`: OpenCode MCP server entry.
+- `opencode.autoload.example.jsonc`: OpenCode plugin snippet that loads
+  `hooks/code2lora-autoload.mjs` and injects compact context into chat system
+  context. This is separate from MCP and is also enabled at the repo root by
+  `opencode.jsonc`.
+
 To install the MCP server into the current Windows user's Codex/OpenCode config
 with backups:
 

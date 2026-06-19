@@ -228,6 +228,57 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-session-audit.
 tokens、reduction 約 `80%`。實際數字以
 `.code2lora/agent-context/session-audit.json` 為準。
 
+## OpenCode Autoload Hook
+
+本 repo 也提供 project-local OpenCode hook，讓支援 project config 的 OpenCode
+client 在 chat 開始時自動載入 Code2LoRA compact context。
+
+已啟用的 repo-local config：
+
+```text
+opencode.jsonc
+hooks/code2lora-autoload.mjs
+```
+
+預設流程：
+
+1. OpenCode 載入 `opencode.jsonc` 的 `plugin` 設定。
+2. hook 檢查 `.code2lora/agent-context/context.md`。
+3. 如果 context 不存在，hook 會呼叫 `scripts/agent-context.ps1` 自動產生。
+4. hook 把 compact context 注入 `experimental.chat.system.transform` 的
+   `output.system`。
+5. Agent 仍然用 `scripts/agent-open.ps1` 或 MCP `code2lora_agent_open`
+   記錄後續打開的 raw files，任務結束前跑 session audit。
+
+如果要把同樣設定複製到其他 OpenCode config，使用：
+
+```text
+mcp/opencode.autoload.example.jsonc
+```
+
+常用調整：
+
+```jsonc
+{
+  "plugin": [
+    [
+      "./hooks/code2lora-autoload.mjs",
+      {
+        "refresh": "missing",
+        "contextDir": ".code2lora/agent-context",
+        "maxChars": 24000,
+        "maxFiles": 24,
+        "minReduction": 0.8
+      }
+    ]
+  ]
+}
+```
+
+`refresh` 可設為 `always`，讓每次 chat system context transform 都重建 context；
+`strict: true` 可讓 hook 在 context 產生或讀取失敗時直接報錯，適合 CI 或嚴格
+驗收環境。
+
 ## MCP Workflow for Codex / OpenCode
 
 ### 1. 本機安裝 MCP config
@@ -319,7 +370,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mcp-smoke.ps1 -RepoP
 
 Agents 在這個 repo 內工作時，遵守以下規則：
 
-1. 先跑 `scripts/agent-context.ps1` 或 MCP `code2lora_agent_context`。
+1. 先跑 `scripts/agent-context.ps1`、MCP `code2lora_agent_context`，或確認
+   OpenCode autoload hook 已注入 compact context。
 2. 先讀 `.code2lora/agent-context/context.md` 或 MCP `code2lora_read_context`。
 3. 優先使用 Symbol Map 找入口，不要掃整個 repo。
 4. 需要 raw file 時，使用 `scripts/agent-open.ps1` 或 MCP `code2lora_agent_open`。

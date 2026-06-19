@@ -5,6 +5,10 @@ Code2LoRA context pack before broad source inspection.
 
 For a human-readable and agent-readable operating guide, see `USAGE.md`.
 
+OpenCode project config `opencode.jsonc` installs the local
+`hooks/code2lora-autoload.mjs` hook. When supported by the client, it refreshes
+the compact context if missing and injects it into chat system context.
+
 ## Required Startup Flow
 
 1. Generate or refresh the compact context pack:
