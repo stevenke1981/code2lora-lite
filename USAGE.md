@@ -240,6 +240,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-mcp-config.p
   -Target All
 ```
 
+Linux/macOS + PowerShell 7 dry run：
+
+```bash
+bash scripts/install-mcp-config.sh --repo-path . --target all
+```
+
 實際寫入 Codex / OpenCode config：
 
 ```powershell
@@ -249,13 +255,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-mcp-config.p
   -Apply
 ```
 
+Linux/macOS + PowerShell 7 實際寫入：
+
+```bash
+bash scripts/install-mcp-config.sh --repo-path . --target all --apply
+```
+
 installer 會先備份：
 
 - `C:\Users\<you>\.codex\config.toml`
 - `C:\Users\<you>\.config\opencode\opencode.jsonc`
+- Linux/macOS: `~/.codex/config.toml`
+- Linux/macOS: `${XDG_CONFIG_HOME:-~/.config}/opencode/opencode.jsonc`
 
 並先跑 MCP smoke test。OpenCode config 以 UTF-8 讀寫，避免中文描述被 Windows
-PowerShell 預設編碼破壞。
+PowerShell 預設編碼破壞。Linux installer 需要 `python3` 與 `pwsh`，且會把 MCP
+server command 寫成 `pwsh -NoProfile -File scripts/code2lora-mcp.ps1 ...`。
 
 ### 2. 確認 Codex 看得到 MCP server
 
@@ -326,6 +341,7 @@ Agent/MCP 變更：
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mcp-smoke.ps1 -RepoPath .
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-mcp-config.ps1 -RepoPath . -Target All
+bash scripts/install-mcp-config.sh --repo-path . --target all --skip-smoke
 codex mcp list
 opencode mcp list
 ```

@@ -88,9 +88,17 @@ function Invoke-PowerShellFile {
         [string]$Script,
         [string[]]$ScriptArgs
     )
-    $AllArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $Script) + $ScriptArgs
+    $PowerShellExe = (Get-Process -Id $PID).Path
+    if ([string]::IsNullOrWhiteSpace($PowerShellExe)) {
+        $PowerShellExe = if ($PSVersionTable.PSEdition -eq "Core") { "pwsh" } else { "powershell" }
+    }
+    $AllArgs = @("-NoProfile")
+    if ($PSVersionTable.PSEdition -ne "Core") {
+        $AllArgs += @("-ExecutionPolicy", "Bypass")
+    }
+    $AllArgs += @("-File", $Script) + $ScriptArgs
     $StartInfo = New-Object System.Diagnostics.ProcessStartInfo
-    $StartInfo.FileName = "powershell"
+    $StartInfo.FileName = $PowerShellExe
     $StartInfo.Arguments = ($AllArgs | ForEach-Object { Quote-ProcessArg ([string]$_) }) -join " "
     $StartInfo.RedirectStandardOutput = $true
     $StartInfo.RedirectStandardError = $true

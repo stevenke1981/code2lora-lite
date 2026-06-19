@@ -18,6 +18,12 @@ stdio tools for Codex/OpenCode-compatible clients.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/code2lora-mcp.ps1 -RepoPath .
 ```
 
+Linux/macOS with PowerShell 7:
+
+```bash
+pwsh -NoProfile -File scripts/code2lora-mcp.ps1 -RepoPath .
+```
+
 ## Smoke Test
 
 ```powershell
@@ -42,5 +48,11 @@ with backups:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-mcp-config.ps1 -RepoPath . -Target All -Apply
 ```
 
-Omit `-Apply` for a dry run. The installer runs the MCP smoke test first unless
-`-SkipSmoke` is passed.
+Linux/macOS installer:
+
+```bash
+bash scripts/install-mcp-config.sh --repo-path . --target all --apply
+```
+
+Omit `-Apply` / `--apply` for a dry run. The installer runs the MCP smoke test
+first unless `-SkipSmoke` / `--skip-smoke` is passed.

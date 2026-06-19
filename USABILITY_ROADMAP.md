@@ -31,6 +31,8 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
    `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mcp-smoke.ps1 -RepoPath .`
 12. Install MCP config for local Codex/OpenCode:
    `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-mcp-config.ps1 -RepoPath . -Target All -Apply`
+13. Install MCP config on Linux/macOS with PowerShell 7:
+   `bash scripts/install-mcp-config.sh --repo-path . --target all --apply`
 
 ## Fixed Blocking Gaps
 
@@ -66,6 +68,8 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
   read-context, open, and session audit calls through stdio JSON-RPC.
 - `scripts/install-mcp-config.ps1` merges the MCP server into local
   Codex/OpenCode config files with backups and a smoke-test gate.
+- `scripts/install-mcp-config.sh` provides the Linux/macOS equivalent using
+  `pwsh`, Python stdlib, backups, and the same smoke-test gate.
 - Current machine install evidence: `C:\Users\eda\.codex\config.toml` and
   `C:\Users\eda\.config\opencode\opencode.jsonc` contain `code2lora-lite`
   MCP server entries pointing at this repo.
