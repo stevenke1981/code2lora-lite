@@ -265,6 +265,8 @@ This command writes:
 - `metrics.json`: raw-token estimate, compact-context estimate, and saved-token ratio
 - `codex-prompt.md`: prompt stub for Codex sessions
 - `opencode-prompt.md`: prompt stub for OpenCode sessions
+- `Symbol Map`: Rust/PowerShell entry points so agents can navigate without
+  opening broad source files first
 
 The token metric is a deterministic `chars / 4` estimate. It is not a billing
 counter, but it gives a repeatable before/after signal for whether the agent is

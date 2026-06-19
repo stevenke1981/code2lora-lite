@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use serde::Serialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -18,6 +18,7 @@ pub struct AgentContextReport {
     pub opencode_prompt_path: String,
     pub files_scanned: usize,
     pub files_included: usize,
+    pub symbols_included: usize,
     pub raw_chars: usize,
     pub raw_token_estimate: usize,
     pub context_chars: usize,
@@ -35,6 +36,7 @@ struct FileSignal {
     lines: usize,
     score: i64,
     reason: String,
+    symbols: Vec<String>,
 }
 
 pub fn write_agent_context(
@@ -87,6 +89,7 @@ pub fn write_agent_context(
         opencode_prompt_path: display_path(&opencode_prompt_path),
         files_scanned: scan.files_scanned,
         files_included: scan.signals.len(),
+        symbols_included: scan.signals.iter().map(|signal| signal.symbols.len()).sum(),
         raw_chars: scan.raw_chars,
         raw_token_estimate,
         context_chars: context.chars().count(),
@@ -134,6 +137,13 @@ fn render_context_markdown(repo_path: &Path, signals: &[FileSignal], raw_chars: 
     out.push_str("3. For assertion completion, call `code2lora-lite complete <repo> <adapter> --prefix <code>`.\n");
     out.push_str("4. If this pack lacks evidence for a change, open only the listed target files plus direct dependencies.\n\n");
 
+    out.push_str("## Command Shortcuts\n\n");
+    out.push_str("- Refresh context: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-context.ps1 -RepoPath .`\n");
+    out.push_str("- Verify Rust: `cargo fmt --check; cargo check --no-default-features; cargo test --no-default-features`\n");
+    out.push_str(
+        "- Fast help check: `cargo run --no-default-features -- agent-context --help`\n\n",
+    );
+
     out.push_str("## Language Mix\n\n");
     for (language, count) in by_language {
         out.push_str(&format!("- {language}: {count} selected files\n"));
@@ -150,6 +160,24 @@ fn render_context_markdown(repo_path: &Path, signals: &[FileSignal], raw_chars: 
             signal.lines,
             signal.bytes,
             signal.reason.replace('|', "/")
+        ));
+    }
+
+    out.push_str("\n## Symbol Map\n\n");
+    out.push_str("| Path | Symbols |\n");
+    out.push_str("|------|---------|\n");
+    for signal in signals.iter().filter(|signal| !signal.symbols.is_empty()) {
+        let mut symbols = signal.symbols.iter().take(14).cloned().collect::<Vec<_>>();
+        if signal.symbols.len() > symbols.len() {
+            symbols.push(format!(
+                "... +{} more",
+                signal.symbols.len() - symbols.len()
+            ));
+        }
+        out.push_str(&format!(
+            "| `{}` | `{}` |\n",
+            signal.path,
+            symbols.join("`, `").replace('|', "/")
         ));
     }
     out
@@ -209,7 +237,12 @@ fn scan_repo(repo_path: &Path, max_files: usize) -> Result<ScanResult> {
         let relative = relative_path(repo_path, path);
         let language = language_for(path);
         let lines = content.lines().count();
-        let (score, reason) = score_file(&relative, path, lines, metadata.len());
+        let symbols = extract_symbols(&content, &language);
+        let (mut score, mut reason) = score_file(&relative, path, lines, metadata.len());
+        if !symbols.is_empty() {
+            score += (symbols.len().min(20) as i64) * 3;
+            reason.push_str(", symbol map");
+        }
         signals.push(FileSignal {
             path: relative,
             language,
@@ -217,6 +250,7 @@ fn scan_repo(repo_path: &Path, max_files: usize) -> Result<ScanResult> {
             lines,
             score,
             reason,
+            symbols,
         });
     }
 
@@ -343,6 +377,89 @@ fn relative_path(root: &Path, path: &Path) -> String {
         .join("/")
 }
 
+fn extract_symbols(content: &str, language: &str) -> Vec<String> {
+    match language {
+        "rust" => extract_rust_symbols(content),
+        "powershell" => extract_prefixed_symbols(content, "function "),
+        _ => Vec::new(),
+    }
+}
+
+fn extract_rust_symbols(content: &str) -> Vec<String> {
+    let mut symbols = BTreeSet::new();
+    for line in content.lines() {
+        let line = line.trim_start();
+        if line.starts_with("//") || line.starts_with("#[") {
+            continue;
+        }
+        let line = strip_visibility(line);
+        if let Some(symbol) = parse_prefixed_symbol(line, "async fn ") {
+            symbols.insert(format!("fn {symbol}"));
+        } else if let Some(symbol) = parse_prefixed_symbol(line, "fn ") {
+            symbols.insert(format!("fn {symbol}"));
+        } else if let Some(symbol) = parse_prefixed_symbol(line, "struct ") {
+            symbols.insert(format!("struct {symbol}"));
+        } else if let Some(symbol) = parse_prefixed_symbol(line, "enum ") {
+            symbols.insert(format!("enum {symbol}"));
+        } else if let Some(symbol) = parse_prefixed_symbol(line, "trait ") {
+            symbols.insert(format!("trait {symbol}"));
+        } else if let Some(symbol) = parse_prefixed_symbol(line, "mod ") {
+            symbols.insert(format!("mod {symbol}"));
+        } else if let Some(symbol) = parse_impl_symbol(line) {
+            symbols.insert(symbol);
+        }
+    }
+    symbols.into_iter().collect()
+}
+
+fn extract_prefixed_symbols(content: &str, prefix: &str) -> Vec<String> {
+    let mut symbols = BTreeSet::new();
+    for line in content.lines() {
+        let line = line.trim_start();
+        if let Some(symbol) = parse_prefixed_symbol(line, prefix) {
+            symbols.insert(format!("function {symbol}"));
+        }
+    }
+    symbols.into_iter().collect()
+}
+
+fn strip_visibility(line: &str) -> &str {
+    let line = line
+        .strip_prefix("pub(crate) ")
+        .or_else(|| line.strip_prefix("pub(super) "))
+        .or_else(|| line.strip_prefix("pub "))
+        .unwrap_or(line);
+    line.strip_prefix("unsafe ").unwrap_or(line)
+}
+
+fn parse_prefixed_symbol(line: &str, prefix: &str) -> Option<String> {
+    let rest = line.strip_prefix(prefix)?;
+    let name = rest
+        .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+        .next()?;
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+fn parse_impl_symbol(line: &str) -> Option<String> {
+    let rest = line.strip_prefix("impl ")?;
+    let symbol = rest
+        .split('{')
+        .next()
+        .unwrap_or(rest)
+        .trim()
+        .trim_end_matches(" where")
+        .trim();
+    if symbol.is_empty() {
+        None
+    } else {
+        Some(format!("impl {symbol}"))
+    }
+}
+
 fn display_path(path: &Path) -> String {
     let text = path.display().to_string();
     text.strip_prefix("\\\\?\\").unwrap_or(&text).to_string()
@@ -388,6 +505,10 @@ mod tests {
         assert!(std::path::PathBuf::from(&report.opencode_prompt_path).exists());
         assert!(report.raw_token_estimate > report.context_token_estimate);
         assert!(report.reduction_ratio > 0.5);
+        assert!(report.symbols_included > 0);
+        let context = fs::read_to_string(&report.context_path)?;
+        assert!(context.contains("## Symbol Map"));
+        assert!(context.contains("fn add"));
 
         fs::remove_dir_all(&root).ok();
         Ok(())

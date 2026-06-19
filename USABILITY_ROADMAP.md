@@ -32,8 +32,9 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
   the compact context pack before opening broad source files.
 - `scripts/agent-context.ps1` is the one-command Windows wrapper for humans,
   Codex, and OpenCode.
-- Current self-run evidence for this repo: raw estimate 51,255 tokens,
-  compact context estimate 771 tokens, estimated reduction 98.5%.
+- Current self-run evidence for this repo: raw estimate 52,449 tokens,
+  compact context estimate 1,551 tokens, 160 symbols included, estimated
+  reduction 97.0%.
 
 ## P7: Real Dataset Acceptance
 

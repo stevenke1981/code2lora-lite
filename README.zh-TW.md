@@ -265,6 +265,7 @@ code2lora-lite agent-context [選項] <REPO_PATH>
 - `metrics.json`：原始 token 估算、壓縮 context token 估算、減量比例
 - `codex-prompt.md`：Codex session 可用的 prompt stub
 - `opencode-prompt.md`：OpenCode session 可用的 prompt stub
+- `Symbol Map`：Rust/PowerShell 入口摘要，讓 agent 不必先打開大量原始碼也能導航
 
 token metric 使用可重複的 `chars / 4` 估算。它不是帳單 token 計數器，但可以
 穩定驗證 agent 是否先讀 compact pack，而不是直接把大量原始碼塞進 prompt。

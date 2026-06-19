@@ -12,8 +12,9 @@ Code2LoRA context pack before broad source inspection.
    ```
 
 2. Read `.code2lora/agent-context/context.md` before opening broad source files.
-3. Use `.code2lora/agent-context/metrics.json` as the token-reduction evidence.
-4. Open raw files only when the compact context does not contain enough evidence
+3. Use the `Symbol Map` section to find likely Rust/PowerShell entry points.
+4. Use `.code2lora/agent-context/metrics.json` as the token-reduction evidence.
+5. Open raw files only when the compact context does not contain enough evidence
    for the current task.
 
 ## Token Budget Rule
