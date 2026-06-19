@@ -33,12 +33,12 @@
 |------|---------|-------------|---------------|
 | RAG + 上下文注入 | 高（每次查詢噴 token） | 無 | 脆弱 |
 | 逐倉庫 LoRA 微調 | 零 | 需要（成本高） | 需重新訓練 |
-| **Code2LoRA**（本專案） | **零** | **僅一次超網路前向** | **Static 已完成；Evo 更新 primitive 已完成** |
+| **Code2LoRA**（本專案） | **零** | **僅一次超網路前向** | **Static 已完成；Evo GRU 訓練/更新路徑已接上** |
 
 **Code2LoRA-Static**：從倉庫單一快照產生 Adapter。  
 **Code2LoRA-Evo**（GRU 版本）：維護 repository hidden state，並隨每次 commit diff 增量更新 Adapter。
 
-本輕量化實作支援 **Static** 模式與核心 **Evo** adapter 更新 primitive：給定一個 Python 倉庫，先將其編碼為 768 維向量（使用 `all-MiniLM-L6-v2`），經超網路產生各模組的 LoRA 權重（rank=8，涵蓋 Q/K/V/O/Gate/Up/Down 七組投影），最後注入凍結的 **Qwen2.5-Coder-0.5B** 模型以完成 assertion 補全任務。Evo 會從初始 repo embedding 建立 hidden state，並對每個 commit diff embedding 執行一次 GRU 更新。
+本輕量化實作支援 **Static** 模式與 **Evo** GRU 訓練/更新路徑：給定一個 Python 倉庫，先將其編碼為 768 維向量（使用 `all-MiniLM-L6-v2`），經超網路產生各模組的 LoRA 權重（rank=8，涵蓋 Q/K/V/O/Gate/Up/Down 七組投影），最後注入凍結的 **Qwen2.5-Coder-0.5B** 模型以完成 assertion 補全任務。Evo 會從初始 repo embedding 建立 hidden state，對每個 commit diff embedding 執行一次 GRU 更新，並可用 `evo-train` 對 commit sequence 做 truncated-BPTT 訓練。
 
 ---
 
@@ -109,10 +109,10 @@ Repository (.py 檔案)
 | 推理 CLI（adapt/complete/encode） | ✅ | LoRA adapter safetensors |
 | 完整端到端測試 | ✅ | `test_p7_full_end_to_end_real_inference` (忽略) |
 | 真實資料集（RepoPeftBench） | ✅ | HF Parquet → JSONL 腳本 + 真實資料 smoke test |
-| Code2LoRA-Evo GRU 更新 | 🟡 | state/update/adapter 測試；完整 evolution-track training 待補 |
+| Code2LoRA-Evo GRU 訓練/更新 | 🟡 | state/update/adapter + tiny trainer 測試；真實 evolution metrics 待長跑 |
 | 效能調優 | 🟡 | device-side batches + warning 清理；GPU util profiling 待量測 |
 
-10 個常規測試通過；4 個 `#[ignore]` 測試需要 HF Hub / model 存取、已準備的
+14 個常規測試通過；4 個 `#[ignore]` 測試需要 HF Hub / model 存取、已準備的
 RepoPeftBench 資料，或較長時間的 GPU 執行。
 
 ---
@@ -199,9 +199,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-mcp-config.p
 # 12. 純編碼倉庫（不跑完整管線）
 cargo run --release -- encode ./my-python-project -o repo_emb.embed
 
-# 13. 初始化 Code2LoRA-Evo checkpoint，並從 commit diff 增量更新 adapter
-cargo run --release -- evo-init -o evo.safetensors
-cargo run --release -- evo-adapt -m evo.safetensors `
+# 13. 準備 Evo commit-joined JSONL，訓練 GRU Evo checkpoint
+powershell -ExecutionPolicy Bypass -File scripts/prepare_repopeftbench_evo.ps1 `
+  -OutputDir data/repopeftbench-evo `
+  -MaxRows 2000
+cargo run --release -- evo-train -d data/repopeftbench-evo -o checkpoints-evo -e 1 `
+  --truncation-steps 8 `
+  --max-sequences 4
+
+# 14. 從 commit diff 增量更新 adapter
+cargo run --release -- evo-adapt -m checkpoints-evo/evo_final.safetensors `
   --repo-path ./my-python-project `
   --diff-file ./commit.patch `
   --state-out evo_state.safetensors `
@@ -301,6 +308,28 @@ code2lora-lite evo-adapt [選項] -m <EVO_CHECKPOINT>
 每次 commit 後用前一次的 `--state-in` 跑一次 `evo-adapt`，即可增量更新 repo
 adapter。若沒有 `--state-in`，會從 `--repo-path` 或 `--repo-embedding` 初始化 state。
 
+### `evo-train`
+
+```
+code2lora-lite evo-train [選項]
+
+選項：
+  -d, --data-dir <DIR>          commit-joined RepoPeftBench JSONL 目錄
+                                [預設: data/repopeftbench]
+  -o, --output <DIR>            Evo checkpoint / metrics 輸出目錄 [預設: checkpoints]
+  -e, --epochs <N>              Epoch 數 [預設: 1]
+      --lr <LR>                 學習率 [預設: 1e-4]
+      --truncation-steps <N>    每 N 個 commit 做一次 truncated-BPTT optimizer step
+                                [預設: 8]
+      --max-sequences <N>       可選；限制 repo sequence 數，方便 smoke run
+  -h, --help                    顯示說明
+```
+
+輸出：
+
+- `evo_final.safetensors`：已訓練的 Code2LoRA-Evo checkpoint。
+- `evo_metrics.json`：每個 epoch 的 train/eval loss、sequence 數、truncation 設定。
+
 ### `agent-context`
 
 ```
@@ -364,6 +393,7 @@ code2lora-lite/
 │   ├── base_llm.rs             # Code2LoRAModel 協調器 + 測試
 │   ├── dataset.rs              # CodeDataset + RepoPeftBench JSONL loader
 │   ├── evo.rs                  # Code2LoRA-Evo GRU hidden-state adapter 更新
+│   ├── evo_trainer.rs          # Evo commit-sequence truncated-BPTT trainer
 │   ├── trainer.rs              # 訓練迴圈（CR/IR, AdamW, 驗證）
 │   ├── infer.rs                # adapt/complete/encode 管線
 │   └── agent_context.rs        # Codex/OpenCode context pack + token metrics
@@ -395,7 +425,7 @@ code2lora-lite/
 | 超網路 MLP | 768→768→384 | 768→384→384（簡化） |
 | 逐層嵌入 | 可學習 24 維 | ✅ 可學習 24 維 |
 | GQA K/V 支援 | 透過各模組頭隱含處理 | ✅ 明確的 kv_proj_dim |
-| Code2LoRA-Evo (GRU) | ✅ 完整實作 | 🟡 GRU state/update path 已完成；完整訓練待補 |
+| Code2LoRA-Evo (GRU) | ✅ 完整實作 | 🟡 GRU training/update path 已接上；真實資料 metrics 待長跑 |
 | 推理 token 開銷 | 零 | ✅ 零 |
 
 ---

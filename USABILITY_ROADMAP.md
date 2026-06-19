@@ -14,8 +14,9 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
 4. Complete from a real assertion/code prefix:
    `cargo run --release -- complete ./my-python-project adapter.safetensors --prefix "def test_answer():`n    assert answer() ==" --max-tokens 64 -o assertion.txt`
 5. Initialize and incrementally update an Evo adapter:
-   `cargo run --release -- evo-init -o evo.safetensors`
-   `cargo run --release -- evo-adapt -m evo.safetensors --repo-path ./my-python-project --diff-file ./commit.patch --state-out evo_state.safetensors -o adapter.safetensors`
+   `powershell -ExecutionPolicy Bypass -File scripts/prepare_repopeftbench_evo.ps1 -OutputDir data/repopeftbench-evo -MaxRows 2000`
+   `cargo run --release -- evo-train -d data/repopeftbench-evo -o checkpoints-evo -e 1 --truncation-steps 8 --max-sequences 4`
+   `cargo run --release -- evo-adapt -m checkpoints-evo/evo_final.safetensors --repo-path ./my-python-project --diff-file ./commit.patch --state-out evo_state.safetensors -o adapter.safetensors`
 6. Build a compact Codex/OpenCode context pack:
    `cargo run --release -- agent-context ./my-python-project -o .code2lora/agent-context --max-files 24`
 7. Agent-friendly wrapper:
@@ -38,6 +39,11 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
 - `evo-init` and `evo-adapt` add the Code2LoRA-Evo GRU update primitive:
   initial repo embedding -> hidden state -> per-commit diff GRU update ->
   adapter/state outputs.
+- `evo-train` trains the Code2LoRA-Evo GRU hypernetwork over commit-indexed
+  repository streams with truncated BPTT and writes `evo_metrics.json`.
+- `scripts/prepare_repopeftbench_evo.ps1` downloads public Evo parquet shards
+  through the HuggingFace datasets-server parquet endpoint and converts them to
+  commit-joined JSONL.
 - `complete` now accepts a user-supplied prefix and decodes generated tokens back
   to text instead of generating from placeholder token IDs.
 - README quick-start commands now point to the existing RepoPeftBench preparation
@@ -106,14 +112,17 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
 - [x] Generate LoRA adapter layers from the updated Evo state.
 - [x] Persist and reload Evo checkpoint/state/adapter safetensors.
 - [x] Expose CLI commands: `evo-init` and `evo-adapt`.
-- [ ] Train Evo hypernetwork with truncated BPTT over RepoPeftBench evolution track.
+- [x] Expose CLI command: `evo-train`.
+- [x] Train Evo hypernetwork with truncated BPTT over commit-indexed JSONL streams.
+- [x] Add no-HF tiny Evo trainer smoke test.
+- [ ] Run `evo-train` on a prepared real RepoPeftBench evolution slice and archive `evo_metrics.json`.
 - [ ] Evaluate commit-derived CR/IR/OOD exact-match metrics.
 
 ## Known Limits
 
 - Quality is not proven until the real RepoPeftBench train/eval path reports
   assertion-completion metrics.
-- Code2LoRA-Evo update/inference primitive is implemented; full evolution-track
-  training and metrics are still pending.
+- Code2LoRA-Evo training/update plumbing is implemented; quality remains
+  unproven until a real evolution-track run reports CR/IR/OOD exact-match metrics.
 - The default model path uses Qwen2.5-Coder-0.5B and fp32, so training remains
   heavier than an optimized production pipeline.

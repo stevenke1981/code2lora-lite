@@ -15,6 +15,18 @@ pub struct TrainConfig {
 }
 
 #[derive(Debug, Clone)]
+pub struct EvoTrainConfig {
+    pub data_dir: String,
+    pub base_model: String,
+    pub output: String,
+    pub rank: usize,
+    pub epochs: u32,
+    pub lr: f64,
+    pub truncation_steps: usize,
+    pub max_sequences: Option<usize>,
+}
+
+#[derive(Debug, Clone)]
 pub struct HypernetworkConfig {
     /// Hidden dimension for the shared MLP
     pub hidden_dim: usize,

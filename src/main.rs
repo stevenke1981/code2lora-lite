@@ -8,6 +8,7 @@ mod base_llm;
 mod config;
 mod dataset;
 mod evo;
+mod evo_trainer;
 mod hypernetwork;
 mod infer;
 mod qwen2_lora;
@@ -122,6 +123,27 @@ enum Commands {
         /// Output adapter path
         #[arg(short, long, default_value = "adapter.safetensors")]
         output: String,
+    },
+    /// Train Code2LoRA-Evo on commit-indexed sequences
+    EvoTrain {
+        /// Path to commit-joined RepoPeftBench JSONL directory
+        #[arg(short, long, default_value = "data/repopeftbench")]
+        data_dir: String,
+        /// Output directory for Evo checkpoints and metrics
+        #[arg(short, long, default_value = "checkpoints")]
+        output: String,
+        /// Number of epochs
+        #[arg(short, long, default_value_t = 1)]
+        epochs: u32,
+        /// Learning rate
+        #[arg(short, long, default_value_t = 1e-4)]
+        lr: f64,
+        /// Number of commits per truncated-BPTT optimizer step
+        #[arg(long, default_value_t = 8)]
+        truncation_steps: usize,
+        /// Optional cap for smoke runs
+        #[arg(long)]
+        max_sequences: Option<usize>,
     },
 }
 
@@ -265,6 +287,50 @@ fn main() -> Result<()> {
                 &std::path::PathBuf::from(output),
                 &device,
             )?;
+        }
+        Commands::EvoTrain {
+            data_dir,
+            output,
+            epochs,
+            lr,
+            truncation_steps,
+            max_sequences,
+        } => {
+            let device = Device::cuda_if_available(0)?;
+            info!("Using device: {device:?}");
+            let hn_config = config::HypernetworkConfig::default();
+
+            let dataset_path = std::path::PathBuf::from(&data_dir);
+            anyhow::ensure!(
+                dataset_path.exists(),
+                "Data directory {data_dir:?} not found. For Evo data, run scripts/prepare_repopeftbench.ps1 without -SkipEncode."
+            );
+            let dataset =
+                dataset::CodeDataset::load_from_dir(&dataset_path, &candle_core::Device::Cpu)?;
+            anyhow::ensure!(
+                !dataset.evolution_sequences().is_empty(),
+                "No commit-indexed evolution sequences found in {data_dir:?}"
+            );
+
+            let train_config = config::EvoTrainConfig {
+                rank: hn_config.rank,
+                base_model: "Qwen/Qwen2.5-Coder-0.5B".into(),
+                data_dir: data_dir.clone(),
+                output,
+                epochs,
+                lr,
+                truncation_steps,
+                max_sequences,
+            };
+
+            let dtype = candle_core::DType::F32;
+            let base_model = base_llm::Code2LoRAModel::new(&device, dtype, &hn_config)?;
+            let varmap = candle_nn::VarMap::new();
+            let vb = candle_nn::VarBuilder::from_varmap(&varmap, dtype, &device);
+            let evo = evo::Code2LoRAEvo::new(vb, &hn_config, &varmap)?;
+            let mut trainer =
+                evo_trainer::EvoTrainer::new(evo, base_model, varmap, train_config, device);
+            trainer.train(&dataset)?;
         }
     }
 

@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use candle_core::{Device, Tensor};
 use log::info;
 use serde::Deserialize;
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -14,6 +15,8 @@ use crate::repo_encoder::RepoEmbedding;
 pub struct CodeExample {
     pub repo_id: String,
     pub repo_embedding: RepoEmbedding,
+    pub diff_embedding: Option<RepoEmbedding>,
+    pub diff_text: Option<String>,
     pub code_content: String,
     pub language: String,
     pub split: String,
@@ -46,8 +49,20 @@ pub struct AssertionRecord {
     pub in_repo_split: Option<String>,
     #[serde(default)]
     pub production_code_diff: Option<String>,
-    #[serde(default, alias = "repo_state_embedding", alias = "embedding")]
+    #[serde(
+        default,
+        alias = "repo_state_embedding",
+        alias = "state_embedding",
+        alias = "embedding"
+    )]
     pub repo_embedding: Vec<f32>,
+    #[serde(
+        default,
+        alias = "delta_embedding",
+        alias = "commit_diff_embedding",
+        alias = "production_code_diff_embedding"
+    )]
+    pub diff_embedding: Vec<f32>,
     #[serde(default, alias = "test_file")]
     pub file_path: Option<String>,
 }
@@ -80,10 +95,11 @@ impl AssertionRecord {
         if let Some(target) = self.target_value.filter(|s| !s.trim().is_empty()) {
             code_content.push_str(&target);
         }
+        let diff_text = self.production_code_diff.filter(|s| !s.trim().is_empty());
+
         if code_content.trim().is_empty() {
-            code_content = self
-                .production_code_diff
-                .filter(|s| !s.trim().is_empty())
+            code_content = diff_text
+                .clone()
                 .context("record has no input_prefix/target_value/production_code_diff")?;
         }
 
@@ -108,6 +124,14 @@ impl AssertionRecord {
         Ok(CodeExample {
             repo_id,
             repo_embedding: RepoEmbedding { data: embedding },
+            diff_embedding: if self.diff_embedding.len() == 768 {
+                Some(RepoEmbedding {
+                    data: self.diff_embedding,
+                })
+            } else {
+                None
+            },
+            diff_text,
             code_content,
             language,
             split,
@@ -119,6 +143,23 @@ impl AssertionRecord {
 /// Dataset: code examples for training the hypernetwork.
 pub struct CodeDataset {
     examples: Vec<CodeExample>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EvolutionCommitExample {
+    pub repo_id: String,
+    pub commit_index: i64,
+    pub diff_embedding: Option<RepoEmbedding>,
+    pub diff_text: Option<String>,
+    pub code_content: String,
+    pub split: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct EvolutionSequence {
+    pub repo_id: String,
+    pub initial_repo_embedding: RepoEmbedding,
+    pub commits: Vec<EvolutionCommitExample>,
 }
 
 impl CodeDataset {
@@ -161,6 +202,8 @@ impl CodeDataset {
                             repo_embedding: RepoEmbedding {
                                 data: vec![0.0f32; 768],
                             },
+                            diff_embedding: None,
+                            diff_text: None,
                             code_content: code,
                             language: language.into(),
                             split: "train".into(),
@@ -264,6 +307,49 @@ impl CodeDataset {
             self.examples.iter().skip(cr_count).collect(),
         )
     }
+
+    /// Group commit-derived rows into chronological repository streams for
+    /// Code2LoRA-Evo training. Rows without `commit_index` are intentionally
+    /// skipped because they cannot prove temporal ordering.
+    pub fn evolution_sequences(&self) -> Vec<EvolutionSequence> {
+        let mut by_repo: BTreeMap<&str, Vec<&CodeExample>> = BTreeMap::new();
+        for example in &self.examples {
+            if example.commit_index.is_some() {
+                by_repo
+                    .entry(example.repo_id.as_str())
+                    .or_default()
+                    .push(example);
+            }
+        }
+
+        let mut sequences = Vec::new();
+        for (repo_id, mut rows) in by_repo {
+            rows.sort_by_key(|row| row.commit_index.unwrap_or_default());
+            let Some(first) = rows.first() else {
+                continue;
+            };
+            let initial_repo_embedding = first.repo_embedding.clone();
+            let commits = rows
+                .into_iter()
+                .map(|row| EvolutionCommitExample {
+                    repo_id: row.repo_id.clone(),
+                    commit_index: row.commit_index.unwrap_or_default(),
+                    diff_embedding: row.diff_embedding.clone(),
+                    diff_text: row.diff_text.clone(),
+                    code_content: row.code_content.clone(),
+                    split: row.split.clone(),
+                })
+                .collect();
+
+            sequences.push(EvolutionSequence {
+                repo_id: repo_id.to_string(),
+                initial_repo_embedding,
+                commits,
+            });
+        }
+
+        sequences
+    }
 }
 
 /// Generate a synthetic dataset with random embeddings and fabricated code text.
@@ -286,6 +372,8 @@ pub fn generate_synthetic(n_examples: usize) -> CodeDataset {
         examples.push(CodeExample {
             repo_id: format!("synthetic_{i}"),
             repo_embedding: emb,
+            diff_embedding: None,
+            diff_text: None,
             code_content: code,
             language: "python".into(),
             split: "train".into(),
@@ -468,6 +556,64 @@ mod tests {
         assert_eq!(cr[0].repo_id, "owner/repo2");
         assert_eq!(ir.len(), 2, "repo1 rows are training");
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_evolution_sequences_sort_and_keep_diff_embeddings() -> Result<()> {
+        let repo_emb = vec![0.1f32; 768];
+        let diff_1 = vec![0.2f32; 768];
+        let diff_2 = vec![0.3f32; 768];
+        let rows = vec![
+            serde_json::json!({
+                "repo_id": "owner/evo",
+                "commit_index": 2,
+                "commit_sha": "bbbb",
+                "cross_repo_split": "train",
+                "input_prefix": "def test_b():\n    assert b() ==",
+                "target_value": "2",
+                "production_code_diff": "diff --git a/b.py b/b.py",
+                "repo_embedding": repo_emb,
+                "diff_embedding": diff_2,
+            }),
+            serde_json::json!({
+                "repo_id": "owner/evo",
+                "commit_index": 1,
+                "commit_sha": "aaaa",
+                "cross_repo_split": "train",
+                "input_prefix": "def test_a():\n    assert a() ==",
+                "target_value": "1",
+                "production_code_diff": "diff --git a/a.py b/a.py",
+                "repo_embedding": vec![0.4f32; 768],
+                "diff_embedding": diff_1,
+            }),
+        ];
+
+        let tmp = std::env::temp_dir().join(format!(
+            "repopeftbench-evo-test-{}.jsonl",
+            std::process::id()
+        ));
+        let jsonl: String = rows.iter().map(|r| r.to_string() + "\n").collect();
+        std::fs::write(&tmp, &jsonl)?;
+
+        let examples = CodeDataset::load_jsonl(&tmp)?;
+        std::fs::remove_file(&tmp).ok();
+
+        let dataset = CodeDataset::from_examples(examples);
+        let sequences = dataset.evolution_sequences();
+        assert_eq!(sequences.len(), 1);
+        assert_eq!(sequences[0].repo_id, "owner/evo");
+        assert_eq!(sequences[0].commits.len(), 2);
+        assert_eq!(sequences[0].commits[0].commit_index, 1);
+        assert_eq!(
+            sequences[0].commits[0]
+                .diff_embedding
+                .as_ref()
+                .context("missing diff embedding")?
+                .data[0],
+            0.2f32
+        );
+        assert!(sequences[0].commits[0].code_content.contains("assert a()"));
         Ok(())
     }
 }

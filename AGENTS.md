@@ -67,8 +67,12 @@ Use the MCP tools in this order:
   `cargo run --release -- adapt <repo> -m checkpoints/final.safetensors -o adapter.safetensors`
 - Complete assertion/code prefix:
   `cargo run --release -- complete <repo> adapter.safetensors --prefix "<code>" --max-tokens 64 -o assertion.txt`
+- Prepare Evo commit sequence data:
+  `powershell -ExecutionPolicy Bypass -File scripts/prepare_repopeftbench_evo.ps1 -OutputDir data/repopeftbench-evo -MaxRows 2000`
+- Train Evo GRU checkpoint:
+  `cargo run --release -- evo-train -d data/repopeftbench-evo -o checkpoints-evo -e 1 --truncation-steps 8 --max-sequences 4`
 - Incrementally update Evo adapter:
-  `cargo run --release -- evo-adapt -m evo.safetensors --state-in evo_state.safetensors --diff-file commit.patch --state-out evo_state.safetensors -o adapter.safetensors`
+  `cargo run --release -- evo-adapt -m checkpoints-evo/evo_final.safetensors --state-in evo_state.safetensors --diff-file commit.patch --state-out evo_state.safetensors -o adapter.safetensors`
 - Build agent context only:
   `cargo run --no-default-features -- agent-context <repo> -o .code2lora/agent-context --max-files 24`
 

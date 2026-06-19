@@ -101,6 +101,9 @@
 - [x] Symbol Map（Rust/PowerShell 入口摘要，降低 agent 導航成本）
 - [x] 效能調優：BatchIterator 直接在訓練 device 建 tensor，減少 CPU→GPU batch 搬移
 - [x] 效能調優：adapt / complete / encode 使用 repo embedding cache
-- [/] Code2LoRA-Evo：GRU state/update/adapter persistence 已完成；truncated-BPTT evolution-track training 待補
+- [x] Code2LoRA-Evo：GRU state/update/adapter persistence 已完成
+- [x] Code2LoRA-Evo：commit sequence dataset + truncated-BPTT `evo-train` 已完成
+- [x] RepoPeftBench Evo prepare script（datasets-server parquet → commit-joined JSONL）
+- [ ] Code2LoRA-Evo：真實 evolution-track CR/IR/OOD exact-match metrics 長跑驗證
 - [ ] 效能量測：GPU util > 60%（需真實 GPU profiling）
 - [x] 移除 dead code warnings（`cargo test --no-default-features` 無 warnings）

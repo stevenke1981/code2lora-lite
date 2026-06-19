@@ -33,12 +33,12 @@ A minimal, dependency-light Rust implementation of **[Code2LoRA](https://arxiv.o
 |----------|---------------|-------------------|-------------------|
 | RAG + context injection | High (tokens per query) | None | Brittle |
 | Per-repo LoRA fine-tuning | Zero | Required (expensive) | Requires retraining |
-| **Code2LoRA** (this project) | **Zero** | **Hypernetwork forward only** | **Static done; Evo update primitive done** |
+| **Code2LoRA** (this project) | **Zero** | **Hypernetwork forward only** | **Static done; Evo GRU training/update path wired** |
 
 **Code2LoRA-Static** generates an adapter from a single repository snapshot.  
 **Code2LoRA-Evo** uses a GRU-backed repository state to update the adapter incrementally as commits arrive.
 
-This lite implementation supports the **Static** variant and the core **Evo** adapter-update primitive: given a Python repository, the system encodes it into a 768-dimensional embedding (via `all-MiniLM-L6-v2`), feeds it through a hypernetwork to produce per-module LoRA weights (rank 8, for Q/K/V/O/Gate/Up/Down projections), and injects them into a frozen **Qwen2.5-Coder-0.5B** model for assertion-completion tasks. Evo adds an initial repository state plus one GRU update per commit diff embedding.
+This lite implementation supports the **Static** variant and the **Evo** GRU training/update path: given a Python repository, the system encodes it into a 768-dimensional embedding (via `all-MiniLM-L6-v2`), feeds it through a hypernetwork to produce per-module LoRA weights (rank 8, for Q/K/V/O/Gate/Up/Down projections), and injects them into a frozen **Qwen2.5-Coder-0.5B** model for assertion-completion tasks. Evo adds an initial repository state, one GRU update per commit diff embedding, and `evo-train` for truncated-BPTT training over commit sequences.
 
 ---
 
@@ -109,10 +109,10 @@ Repository (.py files)
 | Inference CLI (adapt/complete/encode) | ✅ | LoRA adapter safetensors |
 | Full end-to-end test | ✅ | `test_p7_full_end_to_end_real_inference` (ignored) |
 | Real dataset (RepoPeftBench) | ✅ | HF Parquet → JSONL script + real-data smoke test |
-| Code2LoRA-Evo GRU updates | 🟡 | state/update/adapter tests; full evolution-track training pending |
+| Code2LoRA-Evo GRU training/updates | 🟡 | state/update/adapter + tiny trainer tests; real evolution metrics pending |
 | Performance optimization | 🟡 | Device-side batches + clean warnings; GPU util profiling pending |
 
-10 regular tests pass; 4 ignored tests require HF Hub/model access, prepared
+14 regular tests pass; 4 ignored tests require HF Hub/model access, prepared
 RepoPeftBench data, or longer GPU runs.
 
 ---
@@ -199,9 +199,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-mcp-config.p
 # 12. Encode a repo without the full pipeline
 cargo run --release -- encode ./my-python-project -o repo_emb.embed
 
-# 13. Initialize a Code2LoRA-Evo checkpoint and update adapter from commit diffs
-cargo run --release -- evo-init -o evo.safetensors
-cargo run --release -- evo-adapt -m evo.safetensors `
+# 13. Prepare Evo commit-joined JSONL and train a GRU Evo checkpoint
+powershell -ExecutionPolicy Bypass -File scripts/prepare_repopeftbench_evo.ps1 `
+  -OutputDir data/repopeftbench-evo `
+  -MaxRows 2000
+cargo run --release -- evo-train -d data/repopeftbench-evo -o checkpoints-evo -e 1 `
+  --truncation-steps 8 `
+  --max-sequences 4
+
+# 14. Update adapter incrementally from commit diffs
+cargo run --release -- evo-adapt -m checkpoints-evo/evo_final.safetensors `
   --repo-path ./my-python-project `
   --diff-file ./commit.patch `
   --state-out evo_state.safetensors `
@@ -302,6 +309,29 @@ Run `evo-adapt` once per commit with the previous `--state-in` to update the
 repository adapter incrementally. Without `--state-in`, it initializes the state
 from `--repo-path` or `--repo-embedding`.
 
+### `evo-train`
+
+```
+code2lora-lite evo-train [OPTIONS]
+
+Options:
+  -d, --data-dir <DIR>          Commit-joined RepoPeftBench JSONL directory
+                                [default: data/repopeftbench]
+  -o, --output <DIR>            Evo checkpoint / metrics output directory
+                                [default: checkpoints]
+  -e, --epochs <N>              Number of epochs [default: 1]
+      --lr <LR>                 Learning rate [default: 1e-4]
+      --truncation-steps <N>    Commits per truncated-BPTT optimizer step
+                                [default: 8]
+      --max-sequences <N>       Optional cap for smoke runs
+  -h, --help                    Print help
+```
+
+Outputs:
+
+- `evo_final.safetensors`: trained Code2LoRA-Evo checkpoint.
+- `evo_metrics.json`: per-epoch train/eval loss, sequence count, truncation settings.
+
 ### `agent-context`
 
 ```
@@ -373,6 +403,7 @@ code2lora-lite/
 │   ├── base_llm.rs             # Code2LoRAModel orchestrator + tests
 │   ├── dataset.rs              # CodeDataset + RepoPeftBench JSONL loader
 │   ├── evo.rs                  # Code2LoRA-Evo GRU hidden-state adapter updates
+│   ├── evo_trainer.rs          # Evo commit-sequence truncated-BPTT trainer
 │   ├── trainer.rs              # Training loop (CR/IR, AdamW, validation)
 │   ├── infer.rs                # adapt/complete/encode pipeline
 │   └── agent_context.rs        # Codex/OpenCode context pack + token metrics
@@ -404,7 +435,7 @@ code2lora-lite/
 | Hypernetwork MLP | 768→768→384 | 768→384→384 (simplified) |
 | Layer embedding | Learned 24-dim | ✅ Learned 24-dim |
 | GQA support for K/V | Implicit via per-module heads | ✅ Explicit kv_proj_dim |
-| Code2LoRA-Evo (GRU) | ✅ Full implementation | 🟡 GRU state/update path done; full training pending |
+| Code2LoRA-Evo (GRU) | ✅ Full implementation | 🟡 GRU training/update path wired; full real-data metrics pending |
 | Inference token overhead | Zero | ✅ Zero |
 
 ---

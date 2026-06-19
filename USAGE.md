@@ -36,7 +36,9 @@ Get-Content .code2lora\agent-context\context.md
    adapter，再用 adapter 做 assertion/code completion。
 2. Code2LoRA-Evo runtime：從初始 repo embedding 建立 hidden state，之後每個
    commit diff 只跑一個 GRU step 產生新版 adapter。
-3. Agent token-saving workflow：為 Codex/OpenCode 產生 compact context pack，讓
+3. Code2LoRA-Evo training：把 commit-joined RepoPeftBench JSONL 依 repo +
+   commit_index 排序，使用 truncated BPTT 訓練 GRU Evo hypernetwork。
+4. Agent token-saving workflow：為 Codex/OpenCode 產生 compact context pack，讓
    agent 先讀小摘要和 Symbol Map，只在必要時打開原始檔，最後用 session audit
    量測是否真的省 token。
 
@@ -102,16 +104,24 @@ cargo run --release -- encode .\my-python-project -o repo_embedding.embed
 
 ### 7. 用 Code2LoRA-Evo 隨 commit 更新 adapter
 
-先準備 Evo checkpoint：
+先準備 commit-joined Evo JSONL，再訓練 Evo checkpoint：
 
 ```powershell
-cargo run --release -- evo-init -o evo.safetensors
+powershell -ExecutionPolicy Bypass -File scripts/prepare_repopeftbench_evo.ps1 `
+  -OutputDir data/repopeftbench-evo `
+  -MaxRows 2000
+
+cargo run --release -- evo-train -d data/repopeftbench-evo `
+  -o checkpoints-evo `
+  -e 1 `
+  --truncation-steps 8 `
+  --max-sequences 4
 ```
 
 第一次 commit update 可用 repo path 初始化 state：
 
 ```powershell
-cargo run --release -- evo-adapt -m evo.safetensors `
+cargo run --release -- evo-adapt -m checkpoints-evo\evo_final.safetensors `
   --repo-path .\my-python-project `
   --diff-file .\commit-001.patch `
   --state-out evo_state.safetensors `
@@ -129,8 +139,17 @@ cargo run --release -- evo-adapt -m evo.safetensors `
 ```
 
 如果你已經有預先算好的 diff embedding，也可以用 `--diff-embedding` 取代
-`--diff-file`。目前 Evo adapter/state 更新 primitive 已實作；完整
-RepoPeftBench evolution-track truncated-BPTT training 仍是後續工作。
+`--diff-file`。`evo-train` 會輸出：
+
+- `checkpoints-evo/evo_final.safetensors`
+- `checkpoints-evo/evo_metrics.json`
+
+如果 JSONL rows 已含 `diff_embedding`，`evo-train` 會直接使用；若只有
+`production_code_diff`，它會載入 MiniLM 並即時計算 diff embedding，因此首次訓練會
+多下載/載入 encoder。
+
+`evo-init` 仍可產生未訓練 checkpoint，適合 smoke/dev；要得到有意義的 adapter
+品質，請使用 `evo-train` 產生的 checkpoint。
 
 ## Agent Token-Saving Workflow
 

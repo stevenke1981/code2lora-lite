@@ -141,15 +141,26 @@ impl Code2LoRAModel {
         repo_emb: &Tensor,
         code_text: &str,
     ) -> Result<Tensor> {
+        let all_lora = hn.forward_all(repo_emb)?;
+        self.compute_ir_loss_with_lora(&all_lora, code_text)
+    }
+
+    /// Compute generative loss using an already-generated per-layer adapter.
+    /// This is used by Code2LoRA-Evo after the GRU state has produced the
+    /// adapter for the current commit.
+    pub fn compute_ir_loss_with_lora(
+        &mut self,
+        all_lora: &[LoRAWeights],
+        code_text: &str,
+    ) -> Result<Tensor> {
         let (ids, seq_len) = self.tokenize(code_text)?;
         if seq_len < 2 {
             return Ok(Tensor::zeros(&[], DType::F32, &self.device)?);
         }
         let input_ids = Tensor::new(ids.as_slice(), &self.device)?.unsqueeze(0)?;
 
-        // P3: inject LoRA into all decoder layers
         self.clear_lora();
-        self.inject_lora_from_hn(hn, repo_emb)?;
+        self.inject_lora(all_lora);
 
         // Forward through the adapted model → hidden states
         let hidden = self.forward_hidden(&input_ids)?;
