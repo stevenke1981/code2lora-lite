@@ -7,9 +7,11 @@
       {
         "refresh": "missing",
         "contextDir": ".code2lora/agent-context",
+        "statusPath": ".code2lora/agent-context/autoload-status.json",
         "maxChars": 24000,
         "maxFiles": 24,
-        "minReduction": 0.8
+        "minReduction": 0.8,
+        "refreshTimeoutMs": 120000
       }
     ]
   ]

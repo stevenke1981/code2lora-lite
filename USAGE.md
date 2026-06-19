@@ -266,9 +266,11 @@ mcp/opencode.autoload.example.jsonc
       {
         "refresh": "missing",
         "contextDir": ".code2lora/agent-context",
+        "statusPath": ".code2lora/agent-context/autoload-status.json",
         "maxChars": 24000,
         "maxFiles": 24,
-        "minReduction": 0.8
+        "minReduction": 0.8,
+        "refreshTimeoutMs": 120000
       }
     ]
   ]
@@ -278,6 +280,31 @@ mcp/opencode.autoload.example.jsonc
 `refresh` 可設為 `always`，讓每次 chat system context transform 都重建 context；
 `strict: true` 可讓 hook 在 context 產生或讀取失敗時直接報錯，適合 CI 或嚴格
 驗收環境。
+
+hook refresh 預設會把 Cargo build target 放在 OS temp 目錄，而不是 repo
+`target/`，避免 Windows 上既有 `target/debug` 檔案被鎖住時讓 autoload 失敗。
+每次 hook transform 後會寫出：
+
+```text
+.code2lora/agent-context/autoload-status.json
+```
+
+這個檔案會記錄 `injected`、`contextPath`、`lastRefresh`、`lastError`、
+`cargoTargetDir` 與 `generatedAtUnix`，方便 human/agent 確認 hook 是否真的執行。
+
+不啟動模型也能 smoke test：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/opencode-autoload-smoke.ps1 -RepoPath .
+```
+
+此 smoke test 會：
+
+1. 呼叫 `opencode debug config`，確認 resolved config 包含
+   `hooks/code2lora-autoload.mjs`。
+2. 直接載入 hook 並呼叫 `experimental.chat.system.transform`。
+3. 驗證 `output.system` 內含 `code2lora-lite-autoload` marker。
+4. 驗證 hook 寫出 `autoload-status.json` 且 `injected=true`。
 
 ## MCP Workflow for Codex / OpenCode
 
@@ -392,6 +419,7 @@ Agent/MCP 變更：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mcp-smoke.ps1 -RepoPath .
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/opencode-autoload-smoke.ps1 -RepoPath .
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-mcp-config.ps1 -RepoPath . -Target All
 bash scripts/install-mcp-config.sh --repo-path . --target all --skip-smoke
 codex mcp list

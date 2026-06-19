@@ -408,8 +408,25 @@ Config options:
   a marker.
 - `maxFiles` and `minReduction`: forwarded to `scripts/agent-context.ps1` when
   the hook needs to refresh the compact context.
+- `statusPath`: diagnostic JSON written after every hook transform; default is
+  `.code2lora/agent-context/autoload-status.json`.
+- `refreshTimeoutMs`: maximum context-refresh runtime before the hook reports a
+  timeout.
+- `cargoTargetDir`: optional Cargo target directory for refresh builds. By
+  default the hook uses an OS temp target directory to avoid Windows locks in
+  the repo `target/` directory.
 - `strict`: optional boolean; when true, context refresh/read failures fail the
   hook instead of silently skipping injection.
+
+Verify the hook without starting a model run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/opencode-autoload-smoke.ps1 -RepoPath .
+```
+
+The smoke check verifies that OpenCode resolved config includes the hook, calls
+the hook transform, confirms system-context injection, and writes an
+`autoload-status.json` file.
 
 ---
 
@@ -448,6 +465,7 @@ code2lora-lite/
 │   ├── install-mcp-config.ps1       # Merge MCP entry into Codex/OpenCode config
 │   ├── install-mcp-config.sh        # Linux/macOS MCP config installer
 │   ├── mcp-smoke.ps1               # MCP JSON-RPC smoke test
+│   ├── opencode-autoload-smoke.ps1  # OpenCode hook config + injection smoke test
 │   └── prepare_repopeftbench.ps1   # HF Parquet download + JSONL conversion
 ├── mcp/
 │   ├── codex.example.toml          # Codex MCP config example

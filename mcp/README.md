@@ -48,6 +48,12 @@ not installed into global Codex/OpenCode config automatically.
   context. This is separate from MCP and is also enabled at the repo root by
   `opencode.jsonc`.
 
+To verify the OpenCode autoload hook itself:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/opencode-autoload-smoke.ps1 -RepoPath .
+```
+
 To install the MCP server into the current Windows user's Codex/OpenCode config
 with backups:
 

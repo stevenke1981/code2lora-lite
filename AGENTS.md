@@ -7,7 +7,9 @@ For a human-readable and agent-readable operating guide, see `USAGE.md`.
 
 OpenCode project config `opencode.jsonc` installs the local
 `hooks/code2lora-autoload.mjs` hook. When supported by the client, it refreshes
-the compact context if missing and injects it into chat system context.
+the compact context if missing, injects it into chat system context, and writes
+`.code2lora/agent-context/autoload-status.json`. Verify with
+`scripts/opencode-autoload-smoke.ps1` when changing hook behavior.
 
 ## Required Startup Flow
 

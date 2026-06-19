@@ -73,6 +73,11 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
 - `opencode.jsonc` loads `hooks/code2lora-autoload.mjs`, which injects the
   compact context into OpenCode chat system context and refreshes it when
   missing.
+- `hooks/code2lora-autoload.mjs` writes `autoload-status.json` and uses an OS
+  temp Cargo target directory during refresh so Windows `target/` locks do not
+  prevent chat startup.
+- `scripts/opencode-autoload-smoke.ps1` verifies OpenCode resolved config,
+  hook transform registration, system-context injection, and status output.
 - Current machine install evidence: `C:\Users\eda\.codex\config.toml` and
   `C:\Users\eda\.config\opencode\opencode.jsonc` contain `code2lora-lite`
   MCP server entries pointing at this repo.
@@ -105,6 +110,7 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
 - [x] Provide MCP stdio wrapper and smoke test for Codex/OpenCode-compatible clients.
 - [x] Provide an installer that writes Codex/OpenCode MCP config entries with backups.
 - [x] Provide an OpenCode autoload hook that injects compact context from project config.
+- [x] Provide an OpenCode hook smoke test and diagnostic status file.
 - [ ] Measure prepare/train/adapt/complete wall time on CPU and CUDA.
 - [ ] Capture GPU utilization during a real tiny-train run.
 - [ ] Confirm repo embedding cache hits on repeated `adapt` / `encode` runs.

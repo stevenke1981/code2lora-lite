@@ -395,8 +395,22 @@ config，可參考 `mcp/opencode.autoload.example.jsonc` 的最小 plugin snippe
 - `maxChars`：注入 system context 的最大字元數；超過會加 marker 後截斷。
 - `maxFiles` 與 `minReduction`：hook 需要刷新 context 時會轉交給
   `scripts/agent-context.ps1`。
+- `statusPath`：每次 hook transform 後寫出的診斷 JSON；預設為
+  `.code2lora/agent-context/autoload-status.json`。
+- `refreshTimeoutMs`：context refresh 最長允許時間，超時會記錄失敗。
+- `cargoTargetDir`：可選 Cargo target 目錄。預設使用 OS temp target 目錄，
+  避免 Windows 鎖住 repo `target/` 時讓 hook refresh 失敗。
 - `strict`：可選 boolean；設為 true 時，刷新或讀取 context 失敗會讓 hook 失敗，
   而不是略過注入。
+
+不啟動模型也能驗證 hook：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/opencode-autoload-smoke.ps1 -RepoPath .
+```
+
+smoke check 會確認 OpenCode resolved config 包含 hook、呼叫 hook transform、
+驗證 system context 已注入，並寫出 `autoload-status.json`。
 
 ---
 
@@ -435,6 +449,7 @@ code2lora-lite/
 │   ├── install-mcp-config.ps1       # merge MCP entry 到 Codex/OpenCode config
 │   ├── install-mcp-config.sh        # Linux/macOS MCP config installer
 │   ├── mcp-smoke.ps1               # MCP JSON-RPC smoke test
+│   ├── opencode-autoload-smoke.ps1  # OpenCode hook config + 注入 smoke test
 │   └── prepare_repopeftbench.ps1   # HF Parquet 下載 + JSONL 轉換
 ├── mcp/
 │   ├── codex.example.toml          # Codex MCP config 範例

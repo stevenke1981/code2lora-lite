@@ -15,3 +15,9 @@
 **Trigger:** Local OpenCode `opencode.jsonc` could not be parsed by PowerShell `ConvertFrom-Json` during MCP config installer validation.
 **Rule:** When updating OpenCode config, treat it as relaxed JSONC and perform minimal targeted edits with backups instead of rewriting it through a strict JSON parser.
 **Source:** code2lora-lite MCP config installer
+
+---
+## Lesson #4 - 2026-06-19
+**Trigger:** The OpenCode autoload hook could import in Node but was not proven usable until it refreshed context through the real OpenCode resolved config path.
+**Rule:** For OpenCode hooks, add a smoke test that checks `opencode debug config`, calls the registered hook transform, verifies a visible marker/status file, and isolates Cargo refresh builds with a temp `CARGO_TARGET_DIR`.
+**Source:** code2lora-lite OpenCode autoload hook
