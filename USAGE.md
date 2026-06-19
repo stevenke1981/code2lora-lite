@@ -1,0 +1,310 @@
+# code2lora-lite 使用說明：Human + Agents
+
+這份文件是 `code2lora-lite` 的日常操作入口。目標是讓人類使用者可以照著跑，也讓
+Codex / OpenCode agents 可以用 MCP 或 wrapper 先讀 compact context，真實減少任務
+中的原始碼 token 使用量。
+
+## 先看這裡
+
+如果你是 human，只想確認專案能跑：
+
+```powershell
+cargo fmt --check
+cargo check --no-default-features
+cargo test --no-default-features
+```
+
+如果你是 agent，先不要直接打開整個 repo。照這個順序：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-context.ps1 -RepoPath .
+Get-Content .code2lora\agent-context\context.md
+```
+
+如果 Codex / OpenCode 已掛上 MCP server，優先使用 MCP tools：
+
+1. `code2lora_agent_context`
+2. `code2lora_read_context`
+3. `code2lora_agent_open`
+4. `code2lora_session_audit`
+
+## 專案能做什麼
+
+`code2lora-lite` 有兩條主要路線：
+
+1. Code2LoRA runtime：把 repo 編碼成 embedding，透過 hypernetwork 產生 LoRA
+   adapter，再用 adapter 做 assertion/code completion。
+2. Agent token-saving workflow：為 Codex/OpenCode 產生 compact context pack，讓
+   agent 先讀小摘要和 Symbol Map，只在必要時打開原始檔，最後用 session audit
+   量測是否真的省 token。
+
+## Human Workflow
+
+### 1. 建置與基本驗證
+
+```powershell
+cargo build --release
+cargo test --no-default-features
+```
+
+常規測試不會下載大型 HuggingFace models。被標記為 `ignored` 的測試才會跑真實
+model / real dataset / GPU-heavy path。
+
+### 2. 準備 RepoPeftBench 真實資料
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/prepare_repopeftbench.ps1 `
+  -OutputDir data/repopeftbench `
+  -SkipCloneRepos
+```
+
+驗證轉換後資料：
+
+```powershell
+$env:CODE2LORA_REAL_DATA_DIR="data/repopeftbench"
+cargo test test_real_repopeftbench_jsonl_smoke -- --ignored --nocapture
+```
+
+### 3. 訓練 hypernetwork
+
+```powershell
+cargo run --release -- train -d data/repopeftbench -o checkpoints -e 1
+```
+
+輸出重點：
+
+- `checkpoints/final.safetensors`：後續 `adapt` 需要的 hypernetwork checkpoint。
+
+### 4. 為目標 repo 產生 adapter
+
+```powershell
+cargo run --release -- adapt .\my-python-project `
+  -m checkpoints\final.safetensors `
+  -o adapter.safetensors
+```
+
+### 5. 執行 completion
+
+```powershell
+cargo run --release -- complete .\my-python-project adapter.safetensors `
+  --prefix "def test_answer():`n    assert answer() ==" `
+  --max-tokens 64 `
+  -o assertion.txt
+```
+
+### 6. 單純產生 repo embedding
+
+```powershell
+cargo run --release -- encode .\my-python-project -o repo_embedding.embed
+```
+
+## Agent Token-Saving Workflow
+
+這條路線不需要 GPU，目標是讓 Codex/OpenCode 任務先讀 compact context，少打開
+原始檔。
+
+### 1. 產生 compact context pack
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-context.ps1 -RepoPath .
+```
+
+會產生：
+
+- `.code2lora/agent-context/context.md`
+- `.code2lora/agent-context/metrics.json`
+- `.code2lora/agent-context/audit.json`
+- `.code2lora/agent-context/codex-prompt.md`
+- `.code2lora/agent-context/opencode-prompt.md`
+
+`audit.json` 是 token reduction gate。預設 `-MinReduction 0.80`，低於門檻會
+non-zero fail。
+
+### 2. Agent 讀 context，不先讀整個 repo
+
+```powershell
+Get-Content .code2lora\agent-context\context.md
+```
+
+Agent 應該先用 `context.md` 內的 Symbol Map 找入口，再決定要打開哪些 raw files。
+
+### 3. 打開 raw files 時要記錄
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-open.ps1 `
+  -RepoPath . `
+  -Files AGENTS.md,src\agent_context.rs
+```
+
+這會更新：
+
+- `.code2lora/agent-context/opened-files.txt`
+
+如果只想記錄、不輸出檔案內容：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-open.ps1 `
+  -RepoPath . `
+  -Files AGENTS.md,src\agent_context.rs `
+  -NoContent
+```
+
+### 4. 任務結束前跑 session audit
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-session-audit.ps1 `
+  -RepoPath . `
+  -OpenedFilesPath .code2lora\agent-context\opened-files.txt
+```
+
+輸出：
+
+- `.code2lora/agent-context/session-audit.json`
+
+看這些欄位：
+
+- `passed`
+- `raw_token_estimate`
+- `context_token_estimate`
+- `opened_file_token_estimate`
+- `session_token_estimate`
+- `saved_token_estimate`
+- `reduction_ratio`
+
+目前本 repo 的 smoke evidence 約為：session `12.4k` tokens、saved `51k`
+tokens、reduction 約 `80%`。實際數字以
+`.code2lora/agent-context/session-audit.json` 為準。
+
+## MCP Workflow for Codex / OpenCode
+
+### 1. 本機安裝 MCP config
+
+Dry run：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-mcp-config.ps1 `
+  -RepoPath . `
+  -Target All
+```
+
+實際寫入 Codex / OpenCode config：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-mcp-config.ps1 `
+  -RepoPath . `
+  -Target All `
+  -Apply
+```
+
+installer 會先備份：
+
+- `C:\Users\<you>\.codex\config.toml`
+- `C:\Users\<you>\.config\opencode\opencode.jsonc`
+
+並先跑 MCP smoke test。OpenCode config 以 UTF-8 讀寫，避免中文描述被 Windows
+PowerShell 預設編碼破壞。
+
+### 2. 確認 Codex 看得到 MCP server
+
+```powershell
+codex mcp list
+```
+
+應看到：
+
+```text
+code2lora-lite ... enabled
+```
+
+### 3. 確認 OpenCode 連得上 MCP server
+
+```powershell
+opencode mcp list
+```
+
+應看到：
+
+```text
+code2lora-lite connected
+```
+
+### 4. 手動 smoke MCP server
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mcp-smoke.ps1 -RepoPath .
+```
+
+這會透過 stdio JSON-RPC 呼叫：
+
+- `initialize`
+- `tools/list`
+- `code2lora_agent_context`
+- `code2lora_read_context`
+- `code2lora_agent_open`
+- `code2lora_session_audit`
+
+輸出：
+
+- `.code2lora/agent-context/mcp-smoke.json`
+
+## Agent Operating Rules
+
+Agents 在這個 repo 內工作時，遵守以下規則：
+
+1. 先跑 `scripts/agent-context.ps1` 或 MCP `code2lora_agent_context`。
+2. 先讀 `.code2lora/agent-context/context.md` 或 MCP `code2lora_read_context`。
+3. 優先使用 Symbol Map 找入口，不要掃整個 repo。
+4. 需要 raw file 時，使用 `scripts/agent-open.ps1` 或 MCP `code2lora_agent_open`。
+5. 最後跑 `scripts/agent-session-audit.ps1` 或 MCP `code2lora_session_audit`。
+6. final answer 要回報 `session-audit.json` 的 token reduction evidence。
+
+## 驗收清單
+
+一般程式變更：
+
+```powershell
+cargo fmt --check
+cargo check --no-default-features
+cargo test --no-default-features
+```
+
+Agent/MCP 變更：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mcp-smoke.ps1 -RepoPath .
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-mcp-config.ps1 -RepoPath . -Target All
+codex mcp list
+opencode mcp list
+```
+
+Real dataset / GPU-heavy 變更：
+
+```powershell
+$env:CODE2LORA_REAL_DATA_DIR="data/repopeftbench"
+cargo test test_real_repopeftbench_jsonl_smoke -- --ignored --nocapture
+cargo test test_p7_repopeftbench_tiny_train -- --ignored --nocapture
+cargo test test_p7_full_end_to_end_real_inference -- --ignored --nocapture
+```
+
+## 常見問題
+
+### `agent-context.ps1` 失敗
+
+先看 `.code2lora/agent-context/audit.json` 是否低於 `min_reduction`。若只是測試
+失敗路徑，可以調高 `-MaxFiles` 或降低 `-MinReduction`，但正式驗收不應關掉 gate。
+
+### `opencode mcp list` 很慢
+
+OpenCode 會嘗試連線所有已啟用 MCP servers，不只 `code2lora-lite`。如果其他 server
+卡住，先看輸出中 `code2lora-lite` 是否為 `connected`。
+
+### `opencode.jsonc` 中文變亂碼
+
+不要用 Windows PowerShell 預設 `Set-Content` 重寫整份 OpenCode config。
+`scripts/install-mcp-config.ps1` 已使用 UTF-8 safe read/write；若 config 曾被破壞，
+用 installer 產生的 `.code2lora-*.bak` 備份還原。
+
+### 第一次跑 model 測試很慢
+
+第一次執行會下載 Qwen2.5-Coder-0.5B 和 all-MiniLM-L6-v2。這是正常行為。
+

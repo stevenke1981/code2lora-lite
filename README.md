@@ -16,6 +16,7 @@ A minimal, dependency-light Rust implementation of **[Code2LoRA](https://arxiv.o
 - [Status](#status)
 - [Requirements](#requirements)
 - [Quick Start](#quick-start)
+- [Human + Agents Usage Guide](USAGE.md)
 - [CLI Reference](#cli-reference)
 - [Project Structure](#project-structure)
 - [Differences from the Paper](#differences-from-the-paper)

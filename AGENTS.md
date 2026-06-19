@@ -3,6 +3,8 @@
 This repository is designed to be used by Codex and OpenCode with a compact
 Code2LoRA context pack before broad source inspection.
 
+For a human-readable and agent-readable operating guide, see `USAGE.md`.
+
 ## Required Startup Flow
 
 1. Generate or refresh the compact context pack:
