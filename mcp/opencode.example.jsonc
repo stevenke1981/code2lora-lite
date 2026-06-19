@@ -1,0 +1,16 @@
+{
+  "mcp": {
+    "code2lora-lite": {
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "D:\\code2lora-lite\\scripts\\code2lora-mcp.ps1",
+        "-RepoPath",
+        "D:\\code2lora-lite"
+      ]
+    }
+  }
+}

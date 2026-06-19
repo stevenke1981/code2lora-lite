@@ -42,6 +42,21 @@ Prefer this order:
 Do not paste or summarize the whole repository into the prompt. The context pack
 exists to keep Codex/OpenCode runs focused and measurable.
 
+## MCP Workflow
+
+Codex/OpenCode clients that support MCP can use the repo-local stdio server:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/code2lora-mcp.ps1 -RepoPath .
+```
+
+Use the MCP tools in this order:
+
+1. `code2lora_agent_context`
+2. `code2lora_read_context`
+3. `code2lora_agent_open`
+4. `code2lora_session_audit`
+
 ## Code2LoRA Runtime Flow
 
 - Train hypernetwork:
@@ -70,4 +85,5 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-context.ps1 -R
 powershell -NoProfile -ExecutionPolicy Bypass -Command "try { & .\scripts\agent-context.ps1 -RepoPath . -MinReduction 0.999; exit 10 } catch { Write-Host 'Expected token gate failure verified' }"
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-open.ps1 -RepoPath . -NoContent -Files AGENTS.md,scripts/agent-context.ps1,scripts/agent-session-audit.ps1,scripts/agent-open.ps1,src/agent_context.rs
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-session-audit.ps1 -RepoPath . -OpenedFilesPath .code2lora/agent-context/opened-files.txt
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mcp-smoke.ps1 -RepoPath .
 ```

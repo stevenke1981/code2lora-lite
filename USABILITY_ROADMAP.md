@@ -21,6 +21,10 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
    `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-session-audit.ps1 -RepoPath ./my-python-project -OpenedFilesPath .code2lora/agent-context/opened-files.txt`
 8. Logged raw-file opening:
    `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-open.ps1 -RepoPath ./my-python-project -Files src/lib.rs`
+9. MCP stdio wrapper:
+   `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/code2lora-mcp.ps1 -RepoPath ./my-python-project`
+10. MCP smoke test:
+   `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mcp-smoke.ps1 -RepoPath .`
 
 ## Fixed Blocking Gaps
 
@@ -42,11 +46,16 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
   Codex/OpenCode.
 - `scripts/agent-open.ps1` opens raw files and records them in
   `opened-files.txt`, making session audit reproducible instead of manual.
-- Current self-run evidence for this repo: raw estimate 55,739 tokens,
-  compact context estimate 1,595 tokens, 162 symbols included, estimated
+- `scripts/code2lora-mcp.ps1` exposes context, open, and audit operations as
+  MCP tools for Codex/OpenCode-compatible clients.
+- `scripts/mcp-smoke.ps1` verifies MCP initialize, tools/list, context,
+  read-context, open, and session audit calls through stdio JSON-RPC.
+- Current self-run evidence for this repo: raw estimate 60,767 tokens,
+  compact context estimate 1,670 tokens, 170 symbols included, estimated
   reduction 97.1%.
-- Current session-audit evidence for this repo with 5 opened files:
-  session estimate 9,121 tokens, estimated reduction 83.6%.
+- Current MCP session-audit evidence for this repo with 6 opened files:
+  session estimate 12,323 tokens, saved estimate 48,444 tokens, estimated
+  reduction 79.7%.
 
 ## P7: Real Dataset Acceptance
 
@@ -65,6 +74,7 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
 - [x] Write `audit.json` and fail the wrapper when the configured token-reduction gate is missed.
 - [x] Write `session-audit.json` comparing compact context plus actual opened files.
 - [x] Provide `scripts/agent-open.ps1` to auto-record raw files opened by agents.
+- [x] Provide MCP stdio wrapper and smoke test for Codex/OpenCode-compatible clients.
 - [ ] Measure prepare/train/adapt/complete wall time on CPU and CUDA.
 - [ ] Capture GPU utilization during a real tiny-train run.
 - [ ] Confirm repo embedding cache hits on repeated `adapt` / `encode` runs.

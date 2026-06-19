@@ -188,6 +188,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-session-audit.
   -RepoPath ./my-python-project `
   -OpenedFilesPath .code2lora/agent-context/opened-files.txt
 
+# Run the MCP wrapper smoke test
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mcp-smoke.ps1 -RepoPath .
+
 # 12. Encode a repo without the full pipeline
 cargo run --release -- encode ./my-python-project -o repo_emb.embed
 ```
@@ -298,6 +301,10 @@ repository estimate with `context.md` plus the raw files listed in
 Use `scripts/agent-open.ps1` when reading raw files so the opened-files log is
 maintained automatically.
 
+MCP-compatible clients can run `scripts/code2lora-mcp.ps1` as a stdio server.
+Repo-local config examples live in `mcp/codex.example.toml` and
+`mcp/opencode.example.jsonc`.
+
 ---
 
 ## Project Structure
@@ -324,7 +331,14 @@ code2lora-lite/
 │   └── agent_context.rs        # Codex/OpenCode context pack + token metrics
 ├── scripts/
 │   ├── agent-context.ps1           # Codex/OpenCode context-pack wrapper
+│   ├── agent-open.ps1              # Open raw files and record session usage
+│   ├── agent-session-audit.ps1     # Audit actual session token savings
+│   ├── code2lora-mcp.ps1           # MCP stdio server wrapper
+│   ├── mcp-smoke.ps1               # MCP JSON-RPC smoke test
 │   └── prepare_repopeftbench.ps1   # HF Parquet download + JSONL conversion
+├── mcp/
+│   ├── codex.example.toml          # Codex MCP config example
+│   └── opencode.example.jsonc      # OpenCode MCP config example
 ```
 
 ---
