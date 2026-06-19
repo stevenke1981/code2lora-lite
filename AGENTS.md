@@ -86,4 +86,5 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "try { & .\scripts\agent-
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-open.ps1 -RepoPath . -NoContent -Files AGENTS.md,scripts/agent-context.ps1,scripts/agent-session-audit.ps1,scripts/agent-open.ps1,src/agent_context.rs
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-session-audit.ps1 -RepoPath . -OpenedFilesPath .code2lora/agent-context/opened-files.txt
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mcp-smoke.ps1 -RepoPath .
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-mcp-config.ps1 -RepoPath . -Target All
 ```

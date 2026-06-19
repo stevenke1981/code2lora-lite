@@ -1,4 +1,4 @@
-[mcp_servers.code2lora-lite]
+[mcp_servers."code2lora-lite"]
 command = "powershell"
 args = [
   "-NoProfile",
@@ -9,3 +9,4 @@ args = [
   "-RepoPath",
   "D:\\code2lora-lite"
 ]
+startup_timeout_sec = 120

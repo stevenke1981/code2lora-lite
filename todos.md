@@ -96,6 +96,7 @@
 - [x] Session token audit（`session-audit.json`，量測 context + 實際開檔）
 - [x] Agent open wrapper（`scripts/agent-open.ps1` 自動維護 opened-files log）
 - [x] MCP wrapper（`scripts/code2lora-mcp.ps1` + `scripts/mcp-smoke.ps1`）
+- [x] MCP config installer（`scripts/install-mcp-config.ps1` 實際寫入 Codex/OpenCode config）
 - [x] Symbol Map（Rust/PowerShell 入口摘要，降低 agent 導航成本）
 - [x] 效能調優：BatchIterator 直接在訓練 device 建 tensor，減少 CPU→GPU batch 搬移
 - [x] 效能調優：adapt / complete / encode 使用 repo embedding cache

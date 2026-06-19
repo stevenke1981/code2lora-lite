@@ -9,3 +9,9 @@
 **Trigger:** MCP wrapper smoke test initially listed all tools but did not call `code2lora_read_context`.
 **Rule:** For MCP wrappers, smoke tests must call every advertised tool at least once and validate one meaningful output from each required workflow step.
 **Source:** code2lora-lite MCP wrapper
+
+---
+## Lesson #3 - 2026-06-19
+**Trigger:** Local OpenCode `opencode.jsonc` could not be parsed by PowerShell `ConvertFrom-Json` during MCP config installer validation.
+**Rule:** When updating OpenCode config, treat it as relaxed JSONC and perform minimal targeted edits with backups instead of rewriting it through a strict JSON parser.
+**Source:** code2lora-lite MCP config installer

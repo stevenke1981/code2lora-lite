@@ -25,6 +25,8 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
    `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/code2lora-mcp.ps1 -RepoPath ./my-python-project`
 10. MCP smoke test:
    `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mcp-smoke.ps1 -RepoPath .`
+11. Install MCP config for local Codex/OpenCode:
+   `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-mcp-config.ps1 -RepoPath . -Target All -Apply`
 
 ## Fixed Blocking Gaps
 
@@ -50,12 +52,19 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
   MCP tools for Codex/OpenCode-compatible clients.
 - `scripts/mcp-smoke.ps1` verifies MCP initialize, tools/list, context,
   read-context, open, and session audit calls through stdio JSON-RPC.
-- Current self-run evidence for this repo: raw estimate 60,767 tokens,
-  compact context estimate 1,670 tokens, 170 symbols included, estimated
-  reduction 97.1%.
+- `scripts/install-mcp-config.ps1` merges the MCP server into local
+  Codex/OpenCode config files with backups and a smoke-test gate.
+- Current machine install evidence: `C:\Users\eda\.codex\config.toml` and
+  `C:\Users\eda\.config\opencode\opencode.jsonc` contain `code2lora-lite`
+  MCP server entries pointing at this repo.
+- Latest measured self-run evidence for this repo: raw estimate ~63k tokens,
+  compact context estimate ~1.7k tokens, 176 symbols included, estimated
+  reduction ~97.1%; the exact run output is in
+  `.code2lora/agent-context/metrics.json`.
 - Current MCP session-audit evidence for this repo with 6 opened files:
-  session estimate 12,323 tokens, saved estimate 48,444 tokens, estimated
-  reduction 79.7%.
+  session estimate ~12.4k tokens, saved estimate ~50.9k tokens, estimated
+  reduction ~80%; the exact run output is in
+  `.code2lora/agent-context/session-audit.json`.
 
 ## P7: Real Dataset Acceptance
 
@@ -75,6 +84,7 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
 - [x] Write `session-audit.json` comparing compact context plus actual opened files.
 - [x] Provide `scripts/agent-open.ps1` to auto-record raw files opened by agents.
 - [x] Provide MCP stdio wrapper and smoke test for Codex/OpenCode-compatible clients.
+- [x] Provide an installer that writes Codex/OpenCode MCP config entries with backups.
 - [ ] Measure prepare/train/adapt/complete wall time on CPU and CUDA.
 - [ ] Capture GPU utilization during a real tiny-train run.
 - [ ] Confirm repo embedding cache hits on repeated `adapt` / `encode` runs.

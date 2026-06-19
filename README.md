@@ -191,6 +191,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-session-audit.
 # Run the MCP wrapper smoke test
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mcp-smoke.ps1 -RepoPath .
 
+# Install the MCP server into local Codex/OpenCode config (backs up first)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-mcp-config.ps1 -RepoPath . -Target All -Apply
+
 # 12. Encode a repo without the full pipeline
 cargo run --release -- encode ./my-python-project -o repo_emb.embed
 ```
@@ -304,6 +307,8 @@ maintained automatically.
 MCP-compatible clients can run `scripts/code2lora-mcp.ps1` as a stdio server.
 Repo-local config examples live in `mcp/codex.example.toml` and
 `mcp/opencode.example.jsonc`.
+Use `scripts/install-mcp-config.ps1` to merge the server entry into local
+Codex/OpenCode config files with backups and a smoke-test gate.
 
 ---
 
@@ -334,6 +339,7 @@ code2lora-lite/
 │   ├── agent-open.ps1              # Open raw files and record session usage
 │   ├── agent-session-audit.ps1     # Audit actual session token savings
 │   ├── code2lora-mcp.ps1           # MCP stdio server wrapper
+│   ├── install-mcp-config.ps1       # Merge MCP entry into Codex/OpenCode config
 │   ├── mcp-smoke.ps1               # MCP JSON-RPC smoke test
 │   └── prepare_repopeftbench.ps1   # HF Parquet download + JSONL conversion
 ├── mcp/

@@ -32,3 +32,13 @@ compact context through MCP, records opened files, runs session audit, and write
 
 Use the files in this directory as repo-local examples. They are intentionally
 not installed into global Codex/OpenCode config automatically.
+
+To install the MCP server into the current Windows user's Codex/OpenCode config
+with backups:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-mcp-config.ps1 -RepoPath . -Target All -Apply
+```
+
+Omit `-Apply` for a dry run. The installer runs the MCP smoke test first unless
+`-SkipSmoke` is passed.
