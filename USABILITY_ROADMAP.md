@@ -17,6 +17,8 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
    `cargo run --release -- agent-context ./my-python-project -o .code2lora/agent-context --max-files 24`
 6. Agent-friendly wrapper:
    `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-context.ps1 -RepoPath ./my-python-project`
+7. End-of-task session audit:
+   `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-session-audit.ps1 -RepoPath ./my-python-project -OpenedFilesPath .code2lora/agent-context/opened-files.txt`
 
 ## Fixed Blocking Gaps
 
@@ -33,9 +35,14 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
 - `scripts/agent-context.ps1` is the one-command Windows wrapper for humans,
   Codex, and OpenCode.
 - The wrapper writes `audit.json` and fails non-zero when `-MinReduction` is not met.
-- Current self-run evidence for this repo: raw estimate 52,982 tokens,
-  compact context estimate 1,551 tokens, 160 symbols included, estimated
+- `scripts/agent-session-audit.ps1` writes `session-audit.json`, comparing the
+  raw repository baseline against compact context plus files actually opened by
+  Codex/OpenCode.
+- Current self-run evidence for this repo: raw estimate 54,694 tokens,
+  compact context estimate 1,575 tokens, 161 symbols included, estimated
   reduction 97.1%.
+- Current session-audit evidence for this repo with 4 opened files:
+  session estimate 8,329 tokens, estimated reduction 84.8%.
 
 ## P7: Real Dataset Acceptance
 
@@ -52,6 +59,7 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
 - [x] Provide a no-GPU `agent-context` path for Codex/OpenCode token reduction.
 - [x] Write `metrics.json` with raw/context token estimates and reduction ratio.
 - [x] Write `audit.json` and fail the wrapper when the configured token-reduction gate is missed.
+- [x] Write `session-audit.json` comparing compact context plus actual opened files.
 - [ ] Measure prepare/train/adapt/complete wall time on CPU and CUDA.
 - [ ] Capture GPU utilization during a real tiny-train run.
 - [ ] Confirm repo embedding cache hits on repeated `adapt` / `encode` runs.

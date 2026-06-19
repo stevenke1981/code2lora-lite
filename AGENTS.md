@@ -17,6 +17,13 @@ Code2LoRA context pack before broad source inspection.
 5. Use `.code2lora/agent-context/metrics.json` as the token-reduction evidence.
 6. Open raw files only when the compact context does not contain enough evidence
    for the current task.
+7. Track raw files opened during the session in
+   `.code2lora/agent-context/opened-files.txt`.
+8. Before final delivery, run session audit:
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-session-audit.ps1 -RepoPath . -OpenedFilesPath .code2lora/agent-context/opened-files.txt
+   ```
 
 ## Token Budget Rule
 
@@ -56,4 +63,6 @@ For agent-context changes, also run:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-context.ps1 -RepoPath .
 powershell -NoProfile -ExecutionPolicy Bypass -Command "try { & .\scripts\agent-context.ps1 -RepoPath . -MinReduction 0.999; exit 10 } catch { Write-Host 'Expected token gate failure verified' }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "@('AGENTS.md','scripts/agent-context.ps1','scripts/agent-session-audit.ps1','src/agent_context.rs') | Set-Content -Encoding UTF8 .code2lora/agent-context/opened-files.txt"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-session-audit.ps1 -RepoPath . -OpenedFilesPath .code2lora/agent-context/opened-files.txt
 ```

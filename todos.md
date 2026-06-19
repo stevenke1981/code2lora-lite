@@ -93,6 +93,7 @@
 - [x] PowerShell wrapper（`scripts/agent-context.ps1`）一鍵產生 context + metrics
 - [x] Token 減量 metrics（raw repo estimate vs compact context estimate）
 - [x] Token reduction gate（`audit.json` + `-MinReduction` non-zero fail）
+- [x] Session token audit（`session-audit.json`，量測 context + 實際開檔）
 - [x] Symbol Map（Rust/PowerShell 入口摘要，降低 agent 導航成本）
 - [x] 效能調優：BatchIterator 直接在訓練 device 建 tensor，減少 CPU→GPU batch 搬移
 - [x] 效能調優：adapt / complete / encode 使用 repo embedding cache

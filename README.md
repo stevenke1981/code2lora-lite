@@ -180,6 +180,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-context.ps1 -R
 # Optional: require at least 80% estimated reduction (default)
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-context.ps1 -RepoPath ./my-python-project -MinReduction 0.80
 
+# Audit a real agent session after recording opened raw files
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-session-audit.ps1 `
+  -RepoPath ./my-python-project `
+  -OpenedFilesPath .code2lora/agent-context/opened-files.txt
+
 # 12. Encode a repo without the full pipeline
 cargo run --release -- encode ./my-python-project -o repo_emb.embed
 ```
@@ -267,6 +272,8 @@ This command writes:
 - `context.md`: compact repository context for Codex/OpenCode to read first
 - `metrics.json`: raw-token estimate, compact-context estimate, and saved-token ratio
 - `audit.json`: pass/fail gate for the required token-reduction ratio
+- `session-audit.json`: pass/fail estimate for context pack plus raw files the
+  agent actually opened
 - `codex-prompt.md`: prompt stub for Codex sessions
 - `opencode-prompt.md`: prompt stub for OpenCode sessions
 - `Symbol Map`: Rust/PowerShell entry points so agents can navigate without
@@ -281,6 +288,9 @@ Project-level `AGENTS.md` tells Codex/OpenCode to run
 `.code2lora/agent-context/context.md` before opening broad source files.
 The wrapper fails non-zero when `-MinReduction` is not met, so token savings are
 enforced instead of being only informational.
+For end-of-task evidence, `scripts/agent-session-audit.ps1` compares the raw
+repository estimate with `context.md` plus the raw files listed in
+`.code2lora/agent-context/opened-files.txt`.
 
 ---
 
