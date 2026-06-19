@@ -199,6 +199,36 @@ impl RepoEncoder {
         Ok(emb)
     }
 
+    /// Embed a single commit diff or patch into the same 768-dim mean+max shape.
+    pub fn embed_text_as_repo(&self, text: &str) -> Result<RepoEmbedding> {
+        let chunks = self.chunk_text(text);
+        anyhow::ensure!(!chunks.is_empty(), "diff text is empty");
+        let dim = self.embed_dim;
+        let mut mean = vec![0.0f32; dim];
+        let mut max = vec![f32::NEG_INFINITY; dim];
+        let mut count = 0usize;
+
+        for chunk in &chunks {
+            let emb = self.embed_text(chunk)?;
+            for i in 0..dim {
+                mean[i] += emb[i];
+                if emb[i] > max[i] {
+                    max[i] = emb[i];
+                }
+            }
+            count += 1;
+        }
+
+        for value in &mut mean {
+            *value /= count as f32;
+        }
+
+        let mut data = Vec::with_capacity(2 * dim);
+        data.extend_from_slice(&mean);
+        data.extend_from_slice(&max);
+        Ok(RepoEmbedding { data })
+    }
+
     pub fn embed_dim(&self) -> usize {
         self.embed_dim
     }

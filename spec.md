@@ -24,14 +24,15 @@
 | 7 種 projection modules (q,k,v,o,gate,up,down) | ✅ 保留 |
 | Repository encoder（weighted avg + max pool） | ✅ 保留 |
 | Code2LoRA-Static（單次投影） | ✅ Phase 1 實作 |
-| Code2LoRA-Evo（GRU 遞迴） | ❌ Phase 2，暫不納入 |
+| Code2LoRA-Evo（GRU 遞迴） | 🟡 Phase 2，GRU state/update primitive 已實作；完整 evolution-track training 待補 |
 | LoRA rank 16 | ⚡ 縮為 rank 8 |
 | Base LLM Qwen2.5-Coder-1.5B | ⚡ 縮為 Qwen2.5-Coder-0.5B |
 
 ### 1.3 非目標
 
 - 不追求複製論文 SOTA 分數（硬體限制）
-- 不實作 Code2LoRA-Evo（GRU 遞迴版本）
+- Phase 1 不實作 Code2LoRA-Evo（GRU 遞迴版本）；Phase 2 已新增 `evo-init` /
+  `evo-adapt` 的 GRU hidden-state adapter update primitive。
 - 不支援 Python 以外的程式語言（Phase 1）
 - 不實作完整的 RepoPeftBench（僅訓練子集，支援 CR 評估）
 
@@ -460,6 +461,7 @@ D:\code2lora-lite/
 │   ├── config.rs                  # 設定檔結構 + 解析
 │   ├── repo_encoder.rs            # RepoEncoder
 │   ├── hypernetwork.rs            # Code2LoRAHead
+│   ├── evo.rs                     # Code2LoRA-Evo GRU state/update primitive
 │   ├── base_llm.rs                # Code2LoRAModel (Qwen2 + LoRA)
 │   ├── trainer.rs                 # 訓練循環
 │   ├── dataset.rs                 # Parquet 資料集載入

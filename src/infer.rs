@@ -5,8 +5,11 @@ use std::path::Path;
 
 use crate::base_llm::Code2LoRAModel;
 use crate::config::HypernetworkConfig;
+use crate::evo::{
+    load_embedding_tensor, load_evo_state, save_evo_adapter, save_evo_state, Code2LoRAEvo,
+};
 use crate::hypernetwork::{load_lora_layers, save_lora_layers, Code2LoRAHead};
-use crate::repo_encoder::RepoEncoder;
+use crate::repo_encoder::{RepoEmbedding, RepoEncoder};
 
 /// Adapt: encode repo → generate LoRA adapter → save to file.
 pub fn adapt(
@@ -82,6 +85,81 @@ pub fn encode(repo_path: &Path, output_path: &Path, device: &Device) -> Result<(
     info!("Repository embedding dim={}", encoder.embed_dim() * 2);
     emb.save(output_path)?;
     info!("Embedding saved to {output_path:?}");
+    Ok(())
+}
+
+/// Evo adapt: update a recurrent hidden state from commit diffs and emit adapter.
+pub fn evo_adapt(
+    evo_checkpoint_path: &Path,
+    repo_path: Option<&Path>,
+    repo_embedding_path: Option<&Path>,
+    state_in_path: Option<&Path>,
+    diff_files: &[String],
+    diff_embedding_paths: &[String],
+    state_output_path: &Path,
+    adapter_output_path: &Path,
+    device: &Device,
+) -> Result<()> {
+    let hn_config = HypernetworkConfig::default();
+    let (evo, _varmap) = Code2LoRAEvo::load(evo_checkpoint_path, &hn_config, DType::F32, device)?;
+
+    let mut state = if let Some(path) = state_in_path {
+        load_evo_state(path, device)?
+    } else {
+        let repo_embedding = match (repo_embedding_path, repo_path) {
+            (Some(path), _) => load_embedding_tensor(path, device)?,
+            (None, Some(path)) => {
+                let encoder = RepoEncoder::new(device)?;
+                encoder
+                    .embed_repo_cached(path, Path::new(".cache/embeddings"))?
+                    .to_tensor(device)?
+            }
+            (None, None) => anyhow::bail!(
+                "Either --state-in or one of --repo-embedding / --repo-path is required"
+            ),
+        };
+        evo.init_state(&repo_embedding)?
+    };
+
+    let mut diff_tensors = Vec::new();
+    for diff_path in diff_embedding_paths {
+        diff_tensors.push(load_embedding_tensor(Path::new(diff_path), device)?);
+    }
+
+    if !diff_files.is_empty() {
+        let encoder = RepoEncoder::new(device)?;
+        for diff_file in diff_files {
+            let diff_text = std::fs::read_to_string(diff_file)?;
+            let diff_embedding: RepoEmbedding = encoder.embed_text_as_repo(&diff_text)?;
+            diff_tensors.push(diff_embedding.to_tensor(device)?);
+        }
+    }
+
+    anyhow::ensure!(
+        !diff_tensors.is_empty(),
+        "At least one --diff-file or --diff-embedding is required"
+    );
+
+    state = evo.update_sequence(&state, &diff_tensors)?;
+    let adapter = evo.adapters_from_state(&state)?;
+    save_evo_state(&state, state_output_path)?;
+    save_evo_adapter(&adapter, adapter_output_path)?;
+    info!(
+        "Evo adapter saved to {:?}; state saved to {:?}",
+        adapter_output_path, state_output_path
+    );
+    Ok(())
+}
+
+/// Initialize an Evo checkpoint. This is useful for smoke tests and for future
+/// evolution-track training to overwrite with learned weights.
+pub fn evo_init_checkpoint(output_path: &Path, device: &Device) -> Result<()> {
+    let hn_config = HypernetworkConfig::default();
+    let varmap = candle_nn::VarMap::new();
+    let vb = candle_nn::VarBuilder::from_varmap(&varmap, DType::F32, device);
+    let evo = Code2LoRAEvo::new(vb, &hn_config, &varmap)?;
+    evo.save(output_path)?;
+    info!("Evo checkpoint initialized at {output_path:?}");
     Ok(())
 }
 

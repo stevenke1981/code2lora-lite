@@ -30,11 +30,13 @@ Get-Content .code2lora\agent-context\context.md
 
 ## 專案能做什麼
 
-`code2lora-lite` 有兩條主要路線：
+`code2lora-lite` 有三條主要路線：
 
 1. Code2LoRA runtime：把 repo 編碼成 embedding，透過 hypernetwork 產生 LoRA
    adapter，再用 adapter 做 assertion/code completion。
-2. Agent token-saving workflow：為 Codex/OpenCode 產生 compact context pack，讓
+2. Code2LoRA-Evo runtime：從初始 repo embedding 建立 hidden state，之後每個
+   commit diff 只跑一個 GRU step 產生新版 adapter。
+3. Agent token-saving workflow：為 Codex/OpenCode 產生 compact context pack，讓
    agent 先讀小摘要和 Symbol Map，只在必要時打開原始檔，最後用 session audit
    量測是否真的省 token。
 
@@ -97,6 +99,38 @@ cargo run --release -- complete .\my-python-project adapter.safetensors `
 ```powershell
 cargo run --release -- encode .\my-python-project -o repo_embedding.embed
 ```
+
+### 7. 用 Code2LoRA-Evo 隨 commit 更新 adapter
+
+先準備 Evo checkpoint：
+
+```powershell
+cargo run --release -- evo-init -o evo.safetensors
+```
+
+第一次 commit update 可用 repo path 初始化 state：
+
+```powershell
+cargo run --release -- evo-adapt -m evo.safetensors `
+  --repo-path .\my-python-project `
+  --diff-file .\commit-001.patch `
+  --state-out evo_state.safetensors `
+  -o adapter.safetensors
+```
+
+下一個 commit 用上一輪 state：
+
+```powershell
+cargo run --release -- evo-adapt -m evo.safetensors `
+  --state-in evo_state.safetensors `
+  --diff-file .\commit-002.patch `
+  --state-out evo_state.safetensors `
+  -o adapter.safetensors
+```
+
+如果你已經有預先算好的 diff embedding，也可以用 `--diff-embedding` 取代
+`--diff-file`。目前 Evo adapter/state 更新 primitive 已實作；完整
+RepoPeftBench evolution-track truncated-BPTT training 仍是後續工作。
 
 ## Agent Token-Saving Workflow
 
@@ -245,7 +279,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mcp-smoke.ps1 -RepoP
 
 輸出：
 
-- `.code2lora/agent-context/mcp-smoke.json`
+- `.code2lora/mcp-smoke-context/mcp-smoke.json`
 
 ## Agent Operating Rules
 
@@ -307,4 +341,3 @@ OpenCode 會嘗試連線所有已啟用 MCP servers，不只 `code2lora-lite`。
 ### 第一次跑 model 測試很慢
 
 第一次執行會下載 Qwen2.5-Coder-0.5B 和 all-MiniLM-L6-v2。這是正常行為。
-

@@ -267,7 +267,7 @@ if (-not $SkipSmoke) {
     if ($LASTEXITCODE -ne 0) {
         throw "MCP smoke failed"
     }
-    $Summary.smoke = Get-Content (Join-Path $ResolvedRepo ".code2lora\agent-context\mcp-smoke.json") -Raw | ConvertFrom-Json
+    $Summary.smoke = Read-TextUtf8 -Path (Join-Path $ResolvedRepo ".code2lora\mcp-smoke-context\mcp-smoke.json") | ConvertFrom-Json
 }
 
 if ($Target -eq "All" -or $Target -eq "Codex") {

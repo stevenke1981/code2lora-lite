@@ -13,25 +13,31 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
    `cargo run --release -- adapt ./my-python-project -m checkpoints/final.safetensors -o adapter.safetensors`
 4. Complete from a real assertion/code prefix:
    `cargo run --release -- complete ./my-python-project adapter.safetensors --prefix "def test_answer():`n    assert answer() ==" --max-tokens 64 -o assertion.txt`
-5. Build a compact Codex/OpenCode context pack:
+5. Initialize and incrementally update an Evo adapter:
+   `cargo run --release -- evo-init -o evo.safetensors`
+   `cargo run --release -- evo-adapt -m evo.safetensors --repo-path ./my-python-project --diff-file ./commit.patch --state-out evo_state.safetensors -o adapter.safetensors`
+6. Build a compact Codex/OpenCode context pack:
    `cargo run --release -- agent-context ./my-python-project -o .code2lora/agent-context --max-files 24`
-6. Agent-friendly wrapper:
+7. Agent-friendly wrapper:
    `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-context.ps1 -RepoPath ./my-python-project`
-7. End-of-task session audit:
+8. End-of-task session audit:
    `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-session-audit.ps1 -RepoPath ./my-python-project -OpenedFilesPath .code2lora/agent-context/opened-files.txt`
-8. Logged raw-file opening:
+9. Logged raw-file opening:
    `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-open.ps1 -RepoPath ./my-python-project -Files src/lib.rs`
-9. MCP stdio wrapper:
+10. MCP stdio wrapper:
    `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/code2lora-mcp.ps1 -RepoPath ./my-python-project`
-10. MCP smoke test:
+11. MCP smoke test:
    `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mcp-smoke.ps1 -RepoPath .`
-11. Install MCP config for local Codex/OpenCode:
+12. Install MCP config for local Codex/OpenCode:
    `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-mcp-config.ps1 -RepoPath . -Target All -Apply`
 
 ## Fixed Blocking Gaps
 
 - `adapt` now requires and loads a trained hypernetwork checkpoint instead of
   producing random LoRA adapter weights.
+- `evo-init` and `evo-adapt` add the Code2LoRA-Evo GRU update primitive:
+  initial repo embedding -> hidden state -> per-commit diff GRU update ->
+  adapter/state outputs.
 - `complete` now accepts a user-supplied prefix and decodes generated tokens back
   to text instead of generating from placeholder token IDs.
 - README quick-start commands now point to the existing RepoPeftBench preparation
@@ -57,14 +63,14 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
 - Current machine install evidence: `C:\Users\eda\.codex\config.toml` and
   `C:\Users\eda\.config\opencode\opencode.jsonc` contain `code2lora-lite`
   MCP server entries pointing at this repo.
-- Latest measured self-run evidence for this repo: raw estimate ~63k tokens,
-  compact context estimate ~1.7k tokens, 176 symbols included, estimated
+- Latest measured self-run evidence for this repo: raw estimate ~70k tokens,
+  compact context estimate ~1.8k tokens, 200+ symbols included, estimated
   reduction ~97.1%; the exact run output is in
   `.code2lora/agent-context/metrics.json`.
-- Current MCP session-audit evidence for this repo with 6 opened files:
-  session estimate ~12.4k tokens, saved estimate ~50.9k tokens, estimated
-  reduction ~80%; the exact run output is in
-  `.code2lora/agent-context/session-audit.json`.
+- Current isolated MCP smoke evidence for this repo:
+  session estimate ~5.8k tokens, saved estimate ~64k tokens, estimated
+  reduction ~91%; the exact run output is in
+  `.code2lora/mcp-smoke-context/session-audit.json`.
 
 ## P7: Real Dataset Acceptance
 
@@ -92,10 +98,22 @@ RepoPeftBench-driven Code2LoRA prototype, not only a compile/test scaffold.
 - [ ] Keep `cargo fmt --check`, `cargo check --no-default-features`, and
       `cargo test --no-default-features` warning-free.
 
+## P9: Code2LoRA-Evo Acceptance
+
+- [x] Implement GRU-backed repository hidden state.
+- [x] Initialize hidden state from the initial repository embedding.
+- [x] Update hidden state from one or more commit diff embeddings/files.
+- [x] Generate LoRA adapter layers from the updated Evo state.
+- [x] Persist and reload Evo checkpoint/state/adapter safetensors.
+- [x] Expose CLI commands: `evo-init` and `evo-adapt`.
+- [ ] Train Evo hypernetwork with truncated BPTT over RepoPeftBench evolution track.
+- [ ] Evaluate commit-derived CR/IR/OOD exact-match metrics.
+
 ## Known Limits
 
 - Quality is not proven until the real RepoPeftBench train/eval path reports
   assertion-completion metrics.
-- Code2LoRA-Evo is still out of scope; the current implementation is Static.
+- Code2LoRA-Evo update/inference primitive is implemented; full evolution-track
+  training and metrics are still pending.
 - The default model path uses Qwen2.5-Coder-0.5B and fp32, so training remains
   heavier than an optimized production pipeline.

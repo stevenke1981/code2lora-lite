@@ -7,6 +7,7 @@ mod agent_context;
 mod base_llm;
 mod config;
 mod dataset;
+mod evo;
 mod hypernetwork;
 mod infer;
 mod qwen2_lora;
@@ -88,6 +89,39 @@ enum Commands {
         /// Maximum number of high-signal files to include
         #[arg(long, default_value_t = 24)]
         max_files: usize,
+    },
+    /// Initialize a Code2LoRA-Evo checkpoint
+    EvoInit {
+        /// Output Evo checkpoint path
+        #[arg(short, long, default_value = "evo.safetensors")]
+        output: String,
+    },
+    /// Incrementally update an Evo adapter from commit diff embeddings/files
+    EvoAdapt {
+        /// Path to a trained Code2LoRA-Evo checkpoint
+        #[arg(short = 'm', long)]
+        evo_checkpoint: String,
+        /// Initial repository path, used when --state-in is absent
+        #[arg(long)]
+        repo_path: Option<String>,
+        /// Initial repository embedding file, used when --state-in is absent
+        #[arg(long)]
+        repo_embedding: Option<String>,
+        /// Previous Evo hidden state
+        #[arg(long)]
+        state_in: Option<String>,
+        /// Output Evo hidden state after applying diffs
+        #[arg(long, default_value = "evo_state.safetensors")]
+        state_out: String,
+        /// Commit diff text/patch file; may be repeated
+        #[arg(long)]
+        diff_file: Vec<String>,
+        /// Commit diff embedding file; may be repeated
+        #[arg(long)]
+        diff_embedding: Vec<String>,
+        /// Output adapter path
+        #[arg(short, long, default_value = "adapter.safetensors")]
+        output: String,
     },
 }
 
@@ -202,6 +236,35 @@ fn main() -> Result<()> {
                 max_files,
             )?;
             println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Commands::EvoInit { output } => {
+            let device = Device::cuda_if_available(0)?;
+            info!("Using device: {device:?}");
+            infer::evo_init_checkpoint(&std::path::PathBuf::from(output), &device)?;
+        }
+        Commands::EvoAdapt {
+            evo_checkpoint,
+            repo_path,
+            repo_embedding,
+            state_in,
+            state_out,
+            diff_file,
+            diff_embedding,
+            output,
+        } => {
+            let device = Device::cuda_if_available(0)?;
+            info!("Using device: {device:?}");
+            infer::evo_adapt(
+                &std::path::PathBuf::from(evo_checkpoint),
+                repo_path.as_deref().map(std::path::Path::new),
+                repo_embedding.as_deref().map(std::path::Path::new),
+                state_in.as_deref().map(std::path::Path::new),
+                &diff_file,
+                &diff_embedding,
+                &std::path::PathBuf::from(state_out),
+                &std::path::PathBuf::from(output),
+                &device,
+            )?;
         }
     }
 

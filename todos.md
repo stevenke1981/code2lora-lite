@@ -79,6 +79,7 @@
 - [x] `encode` 命令實現（main.rs → infer::encode）
 - [x] `adapt` 載入已訓練 hypernetwork checkpoint（不再產生隨機 adapter）
 - [x] `complete` 接受真實 prefix 與 max token 參數
+- [x] `evo-init` / `evo-adapt` 實作 Code2LoRA-Evo GRU hidden-state adapter 更新 primitive
 - [x] Repo embedding cache round-trip 修正（binary-safe load）
 - [x] Adapter safetensors round-trip 測試（fast test）
 - [x] RepoEncoder → adapt → complete 完整端到端測試（`test_p7_full_end_to_end_real_inference`, ignored）
@@ -100,5 +101,6 @@
 - [x] Symbol Map（Rust/PowerShell 入口摘要，降低 agent 導航成本）
 - [x] 效能調優：BatchIterator 直接在訓練 device 建 tensor，減少 CPU→GPU batch 搬移
 - [x] 效能調優：adapt / complete / encode 使用 repo embedding cache
+- [/] Code2LoRA-Evo：GRU state/update/adapter persistence 已完成；truncated-BPTT evolution-track training 待補
 - [ ] 效能量測：GPU util > 60%（需真實 GPU profiling）
 - [x] 移除 dead code warnings（`cargo test --no-default-features` 無 warnings）

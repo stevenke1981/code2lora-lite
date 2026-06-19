@@ -33,12 +33,12 @@ A minimal, dependency-light Rust implementation of **[Code2LoRA](https://arxiv.o
 |----------|---------------|-------------------|-------------------|
 | RAG + context injection | High (tokens per query) | None | Brittle |
 | Per-repo LoRA fine-tuning | Zero | Required (expensive) | Requires retraining |
-| **Code2LoRA** (this project) | **Zero** | **Hypernetwork forward only** | **Static mode done; Evo mode TBD** |
+| **Code2LoRA** (this project) | **Zero** | **Hypernetwork forward only** | **Static done; Evo update primitive done** |
 
 **Code2LoRA-Static** generates an adapter from a single repository snapshot.  
-**Code2LoRA-Evo** (GRU-based, not yet implemented here) updates the adapter incrementally as commits arrive.
+**Code2LoRA-Evo** uses a GRU-backed repository state to update the adapter incrementally as commits arrive.
 
-This lite implementation focuses on the **Static** variant: given a Python repository, the system encodes it into a 768-dimensional embedding (via `all-MiniLM-L6-v2`), feeds it through a hypernetwork to produce per-module LoRA weights (rank 8, for Q/K/V/O/Gate/Up/Down projections), and injects them into a frozen **Qwen2.5-Coder-0.5B** model for assertion-completion tasks.
+This lite implementation supports the **Static** variant and the core **Evo** adapter-update primitive: given a Python repository, the system encodes it into a 768-dimensional embedding (via `all-MiniLM-L6-v2`), feeds it through a hypernetwork to produce per-module LoRA weights (rank 8, for Q/K/V/O/Gate/Up/Down projections), and injects them into a frozen **Qwen2.5-Coder-0.5B** model for assertion-completion tasks. Evo adds an initial repository state plus one GRU update per commit diff embedding.
 
 ---
 
@@ -109,6 +109,7 @@ Repository (.py files)
 | Inference CLI (adapt/complete/encode) | ✅ | LoRA adapter safetensors |
 | Full end-to-end test | ✅ | `test_p7_full_end_to_end_real_inference` (ignored) |
 | Real dataset (RepoPeftBench) | ✅ | HF Parquet → JSONL script + real-data smoke test |
+| Code2LoRA-Evo GRU updates | 🟡 | state/update/adapter tests; full evolution-track training pending |
 | Performance optimization | 🟡 | Device-side batches + clean warnings; GPU util profiling pending |
 
 10 regular tests pass; 4 ignored tests require HF Hub/model access, prepared
@@ -197,6 +198,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-mcp-config.p
 
 # 12. Encode a repo without the full pipeline
 cargo run --release -- encode ./my-python-project -o repo_emb.embed
+
+# 13. Initialize a Code2LoRA-Evo checkpoint and update adapter from commit diffs
+cargo run --release -- evo-init -o evo.safetensors
+cargo run --release -- evo-adapt -m evo.safetensors `
+  --repo-path ./my-python-project `
+  --diff-file ./commit.patch `
+  --state-out evo_state.safetensors `
+  -o adapter.safetensors
 ```
 
 > **Note**: The first run downloads Qwen2.5-Coder-0.5B (~2 GB) and all-MiniLM-L6-v2 (~90 MB) to HuggingFace's cache directory.
@@ -261,6 +270,37 @@ Options:
   -o, --output <FILE>       Output path  [default: repo_embedding.embed]
   -h, --help                Print help
 ```
+
+### `evo-init`
+
+```
+code2lora-lite evo-init [OPTIONS]
+
+Options:
+  -o, --output <FILE>       Output Evo checkpoint path [default: evo.safetensors]
+  -h, --help                Print help
+```
+
+### `evo-adapt`
+
+```
+code2lora-lite evo-adapt [OPTIONS] -m <EVO_CHECKPOINT>
+
+Options:
+  -m, --evo-checkpoint <FILE>    Trained Code2LoRA-Evo checkpoint
+      --repo-path <DIR>          Initial repo path when --state-in is absent
+      --repo-embedding <FILE>    Initial repo embedding when --state-in is absent
+      --state-in <FILE>          Previous Evo hidden state
+      --state-out <FILE>         Output hidden state [default: evo_state.safetensors]
+      --diff-file <FILE>         Commit diff text/patch file; may be repeated
+      --diff-embedding <FILE>    Commit diff embedding file; may be repeated
+  -o, --output <FILE>            Output adapter path [default: adapter.safetensors]
+  -h, --help                     Print help
+```
+
+Run `evo-adapt` once per commit with the previous `--state-in` to update the
+repository adapter incrementally. Without `--state-in`, it initializes the state
+from `--repo-path` or `--repo-embedding`.
 
 ### `agent-context`
 
@@ -332,6 +372,7 @@ code2lora-lite/
 │   ├── qwen2_lora.rs           # Custom LoRALinear/LoRAAttention/LoRAMLP/LoRAModel
 │   ├── base_llm.rs             # Code2LoRAModel orchestrator + tests
 │   ├── dataset.rs              # CodeDataset + RepoPeftBench JSONL loader
+│   ├── evo.rs                  # Code2LoRA-Evo GRU hidden-state adapter updates
 │   ├── trainer.rs              # Training loop (CR/IR, AdamW, validation)
 │   ├── infer.rs                # adapt/complete/encode pipeline
 │   └── agent_context.rs        # Codex/OpenCode context pack + token metrics
@@ -363,7 +404,7 @@ code2lora-lite/
 | Hypernetwork MLP | 768→768→384 | 768→384→384 (simplified) |
 | Layer embedding | Learned 24-dim | ✅ Learned 24-dim |
 | GQA support for K/V | Implicit via per-module heads | ✅ Explicit kv_proj_dim |
-| Code2LoRA-Evo (GRU) | ✅ Full implementation | ❌ Not implemented |
+| Code2LoRA-Evo (GRU) | ✅ Full implementation | 🟡 GRU state/update path done; full training pending |
 | Inference token overhead | Zero | ✅ Zero |
 
 ---

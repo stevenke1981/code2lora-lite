@@ -26,7 +26,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mcp-smoke.ps1 -RepoP
 
 The smoke test calls the MCP server over stdio, runs the context gate, reads the
 compact context through MCP, records opened files, runs session audit, and writes
-`.code2lora/agent-context/mcp-smoke.json`.
+`.code2lora/mcp-smoke-context/mcp-smoke.json`. The smoke test uses an isolated
+context directory so a real agent session's opened-files log cannot pollute the
+MCP gate.
 
 ## Config Examples
 

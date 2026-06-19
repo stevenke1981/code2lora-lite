@@ -33,12 +33,12 @@
 |------|---------|-------------|---------------|
 | RAG + 上下文注入 | 高（每次查詢噴 token） | 無 | 脆弱 |
 | 逐倉庫 LoRA 微調 | 零 | 需要（成本高） | 需重新訓練 |
-| **Code2LoRA**（本專案） | **零** | **僅一次超網路前向** | **Static 已完成；Evo 待實現** |
+| **Code2LoRA**（本專案） | **零** | **僅一次超網路前向** | **Static 已完成；Evo 更新 primitive 已完成** |
 
 **Code2LoRA-Static**：從倉庫單一快照產生 Adapter。  
-**Code2LoRA-Evo**（GRU 版本，尚未實作）：隨每次 commit 增量更新 Adapter。
+**Code2LoRA-Evo**（GRU 版本）：維護 repository hidden state，並隨每次 commit diff 增量更新 Adapter。
 
-本輕量化實作專注於 **Static** 模式：給定一個 Python 倉庫，先將其編碼為 768 維向量（使用 `all-MiniLM-L6-v2`），經超網路產生各模組的 LoRA 權重（rank=8，涵蓋 Q/K/V/O/Gate/Up/Down 七組投影），最後注入凍結的 **Qwen2.5-Coder-0.5B** 模型以完成 assertion 補全任務。
+本輕量化實作支援 **Static** 模式與核心 **Evo** adapter 更新 primitive：給定一個 Python 倉庫，先將其編碼為 768 維向量（使用 `all-MiniLM-L6-v2`），經超網路產生各模組的 LoRA 權重（rank=8，涵蓋 Q/K/V/O/Gate/Up/Down 七組投影），最後注入凍結的 **Qwen2.5-Coder-0.5B** 模型以完成 assertion 補全任務。Evo 會從初始 repo embedding 建立 hidden state，並對每個 commit diff embedding 執行一次 GRU 更新。
 
 ---
 
@@ -109,6 +109,7 @@ Repository (.py 檔案)
 | 推理 CLI（adapt/complete/encode） | ✅ | LoRA adapter safetensors |
 | 完整端到端測試 | ✅ | `test_p7_full_end_to_end_real_inference` (忽略) |
 | 真實資料集（RepoPeftBench） | ✅ | HF Parquet → JSONL 腳本 + 真實資料 smoke test |
+| Code2LoRA-Evo GRU 更新 | 🟡 | state/update/adapter 測試；完整 evolution-track training 待補 |
 | 效能調優 | 🟡 | device-side batches + warning 清理；GPU util profiling 待量測 |
 
 10 個常規測試通過；4 個 `#[ignore]` 測試需要 HF Hub / model 存取、已準備的
@@ -197,6 +198,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-mcp-config.p
 
 # 12. 純編碼倉庫（不跑完整管線）
 cargo run --release -- encode ./my-python-project -o repo_emb.embed
+
+# 13. 初始化 Code2LoRA-Evo checkpoint，並從 commit diff 增量更新 adapter
+cargo run --release -- evo-init -o evo.safetensors
+cargo run --release -- evo-adapt -m evo.safetensors `
+  --repo-path ./my-python-project `
+  --diff-file ./commit.patch `
+  --state-out evo_state.safetensors `
+  -o adapter.safetensors
 ```
 
 > **注意**：首次執行會自動下載 Qwen2.5-Coder-0.5B（約 2 GB）與 all-MiniLM-L6-v2（約 90 MB）至 HuggingFace 快取目錄。
@@ -262,6 +271,36 @@ code2lora-lite encode [選項] <REPO_PATH>
   -h, --help                顯示說明
 ```
 
+### `evo-init`
+
+```
+code2lora-lite evo-init [選項]
+
+選項：
+  -o, --output <FILE>       Evo checkpoint 輸出路徑 [預設: evo.safetensors]
+  -h, --help                顯示說明
+```
+
+### `evo-adapt`
+
+```
+code2lora-lite evo-adapt [選項] -m <EVO_CHECKPOINT>
+
+選項：
+  -m, --evo-checkpoint <FILE>    已訓練的 Code2LoRA-Evo checkpoint
+      --repo-path <DIR>          未提供 --state-in 時用來初始化 state 的 repo
+      --repo-embedding <FILE>    未提供 --state-in 時用來初始化 state 的 repo embedding
+      --state-in <FILE>          前一次 Evo hidden state
+      --state-out <FILE>         輸出 hidden state [預設: evo_state.safetensors]
+      --diff-file <FILE>         commit diff/patch 文字檔，可重複
+      --diff-embedding <FILE>    commit diff embedding 檔，可重複
+  -o, --output <FILE>            Adapter 輸出路徑 [預設: adapter.safetensors]
+  -h, --help                     顯示說明
+```
+
+每次 commit 後用前一次的 `--state-in` 跑一次 `evo-adapt`，即可增量更新 repo
+adapter。若沒有 `--state-in`，會從 `--repo-path` 或 `--repo-embedding` 初始化 state。
+
 ### `agent-context`
 
 ```
@@ -324,6 +363,7 @@ code2lora-lite/
 │   ├── qwen2_lora.rs           # 自訂 LoRALinear/LoRAAttention/LoRAMLP/LoRAModel
 │   ├── base_llm.rs             # Code2LoRAModel 協調器 + 測試
 │   ├── dataset.rs              # CodeDataset + RepoPeftBench JSONL loader
+│   ├── evo.rs                  # Code2LoRA-Evo GRU hidden-state adapter 更新
 │   ├── trainer.rs              # 訓練迴圈（CR/IR, AdamW, 驗證）
 │   ├── infer.rs                # adapt/complete/encode 管線
 │   └── agent_context.rs        # Codex/OpenCode context pack + token metrics
@@ -355,7 +395,7 @@ code2lora-lite/
 | 超網路 MLP | 768→768→384 | 768→384→384（簡化） |
 | 逐層嵌入 | 可學習 24 維 | ✅ 可學習 24 維 |
 | GQA K/V 支援 | 透過各模組頭隱含處理 | ✅ 明確的 kv_proj_dim |
-| Code2LoRA-Evo (GRU) | ✅ 完整實作 | ❌ 尚未實作 |
+| Code2LoRA-Evo (GRU) | ✅ 完整實作 | 🟡 GRU state/update path 已完成；完整訓練待補 |
 | 推理 token 開銷 | 零 | ✅ 零 |
 
 ---
