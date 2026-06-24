@@ -355,7 +355,10 @@ impl LoRALayer {
         let xs = self.self_attn.forward(&xs, attention_mask, seqlen_offset)?;
         let xs = (xs + residual)?;
         let residual = &xs;
-        let xs = self.post_attention_layernorm.forward_diff(&xs)?.apply(&self.mlp)?;
+        let xs = self
+            .post_attention_layernorm
+            .forward_diff(&xs)?
+            .apply(&self.mlp)?;
         Ok((residual + xs)?)
     }
 }

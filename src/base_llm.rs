@@ -570,7 +570,10 @@ mod tests {
                     .unwrap_or(false)
             })
             .count();
-        println!("hypernetwork vars with nonzero grad: {with_grad}/{}", vars.len());
+        println!(
+            "hypernetwork vars with nonzero grad: {with_grad}/{}",
+            vars.len()
+        );
         assert!(
             with_grad * 2 >= vars.len(),
             "hypernetwork is disconnected from the loss ({with_grad}/{} vars have a gradient); \
