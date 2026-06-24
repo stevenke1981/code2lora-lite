@@ -499,6 +499,90 @@ mod tests {
         Ok(())
     }
 
+    /// Regression guard for the silent training no-op: candle's fused inference
+    /// ops (`rms_norm`, `softmax_last_dim`, `rope`) are registered `apply_op*_no_bwd`,
+    /// so if the frozen Qwen forward uses them the gradient to the hypernetwork is
+    /// silently pruned and 0/N vars train. `test_training_pipeline_full` only checks
+    /// that `backward_step` does not panic, which passed even in that broken state.
+    /// This test asserts the hypernetwork vars actually receive a gradient.
+    #[test]
+    fn test_hypernetwork_receives_gradients() -> Result<()> {
+        use candle_core::DType;
+        use candle_nn::VarMap;
+
+        let device = Device::Cpu;
+        let qwen_cfg = qwen2_model::Config {
+            hidden_size: 64,
+            intermediate_size: 64,
+            num_hidden_layers: 2,
+            num_attention_heads: 4,
+            num_key_value_heads: 2,
+            vocab_size: 256,
+            max_position_embeddings: 64,
+            rms_norm_eps: 1e-6,
+            rope_theta: 10000.0,
+            sliding_window: 0,
+            max_window_layers: 0,
+            tie_word_embeddings: false,
+            use_sliding_window: false,
+            hidden_act: candle_nn::Activation::Silu,
+        };
+        let hn_cfg = HypernetworkConfig {
+            hidden_dim: 32,
+            rank: 4,
+            num_layers: 2,
+            repo_embed_dim: 64,
+            llm_hidden_dim: 64,
+            llm_intermediate_dim: 64,
+            kv_proj_dim: 32,
+        };
+
+        let hn_varmap = VarMap::new();
+        let hn = Code2LoRAHead::new(
+            VarBuilder::from_varmap(&hn_varmap, DType::F32, &device),
+            &hn_cfg,
+            &hn_varmap,
+        )?;
+        let model_vb = VarBuilder::from_varmap(&VarMap::new(), DType::F32, &device);
+        let mut model = crate::qwen2_lora::LoRAModel::new(&qwen_cfg, model_vb.clone())?;
+        let lm_head = candle_nn::linear_no_bias(64, 256, model_vb.pp("lm_head"))?;
+
+        let repo_emb = Tensor::rand(-1f32, 1f32, (1, hn_cfg.repo_embed_dim), &device)?;
+        let input_ids = Tensor::rand(0f32, 255f32, (1, 16), &device)?.to_dtype(DType::U32)?;
+
+        // IR loss: hypernetwork -> LoRA -> inject -> frozen Qwen -> next-token CE.
+        model.inject_lora_all(&hn.forward_all(&repo_emb)?);
+        let logits = model.forward(&input_ids, 0, None)?.apply(&lm_head)?;
+        let loss = candle_nn::loss::cross_entropy(
+            &logits.narrow(1, 0, 15)?.reshape((15, 256))?,
+            &input_ids.narrow(1, 1, 15)?.reshape((15,))?,
+        )?;
+
+        let grads = loss.backward()?;
+        let vars = hn_varmap.all_vars();
+        let with_grad = vars
+            .iter()
+            .filter(|v| {
+                grads
+                    .get(v.as_tensor())
+                    .and_then(|g| g.sqr().ok()?.sum_all().ok()?.to_scalar::<f32>().ok())
+                    .map(|n| n > 0.0)
+                    .unwrap_or(false)
+            })
+            .count();
+        println!(
+            "hypernetwork vars with nonzero grad: {with_grad}/{}",
+            vars.len()
+        );
+        assert!(
+            with_grad * 2 >= vars.len(),
+            "hypernetwork is disconnected from the loss ({with_grad}/{} vars have a gradient); \
+             a fused *_no_bwd op (rms_norm/softmax/rope) is severing the autograd graph",
+            vars.len()
+        );
+        Ok(())
+    }
+
     /// ─── P6: Real-model training demo ───
     ///
     /// Downloads the real Qwen2.5-Coder-0.5B model (if not cached),
