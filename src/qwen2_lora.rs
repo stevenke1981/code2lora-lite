@@ -131,8 +131,8 @@ impl RotaryEmbedding {
         let (_b_sz, _h, seq_len, _n_embd) = q.dims4()?;
         let cos = self.cos.narrow(0, seqlen_offset, seq_len)?;
         let sin = self.sin.narrow(0, seqlen_offset, seq_len)?;
-        let q_embed = candle_nn::rotary_emb::rope(&q.contiguous()?, &cos, &sin)?;
-        let k_embed = candle_nn::rotary_emb::rope(&k.contiguous()?, &cos, &sin)?;
+        let q_embed = candle_nn::rotary_emb::rope_slow(&q.contiguous()?, &cos, &sin)?;
+        let k_embed = candle_nn::rotary_emb::rope_slow(&k.contiguous()?, &cos, &sin)?;
         Ok((q_embed, k_embed))
     }
 }
@@ -238,7 +238,8 @@ impl LoRAAttention {
                 None => attn_weights,
                 Some(mask) => attn_weights.broadcast_add(mask)?,
             };
-            let attn_weights = candle_nn::ops::softmax_last_dim(&attn_weights)?;
+            // softmax_last_dim is apply_op1_no_bwd (severs grad); use the differentiable softmax.
+            let attn_weights = candle_nn::ops::softmax(&attn_weights, D::Minus1)?;
             attn_weights.matmul(&value_states)?
         };
         let out = attn_output
@@ -348,11 +349,13 @@ impl LoRALayer {
         seqlen_offset: usize,
     ) -> Result<Tensor> {
         let residual = xs;
-        let xs = self.input_layernorm.forward(xs)?;
+        // forward_diff routes rms_norm through the differentiable (non-fused) path;
+        // the default Module::forward uses ops::rms_norm = apply_op2_no_bwd (severs grad).
+        let xs = self.input_layernorm.forward_diff(xs)?;
         let xs = self.self_attn.forward(&xs, attention_mask, seqlen_offset)?;
         let xs = (xs + residual)?;
         let residual = &xs;
-        let xs = xs.apply(&self.post_attention_layernorm)?.apply(&self.mlp)?;
+        let xs = self.post_attention_layernorm.forward_diff(&xs)?.apply(&self.mlp)?;
         Ok((residual + xs)?)
     }
 }
@@ -442,7 +445,7 @@ impl LoRAModel {
         for layer in self.layers.iter_mut() {
             xs = layer.forward(&xs, attention_mask.as_ref(), seqlen_offset)?;
         }
-        Ok(xs.apply(&self.norm)?)
+        Ok(self.norm.forward_diff(&xs)?)
     }
 
     fn prepare_attention_mask(&self, attn_mask: &Tensor) -> Result<Tensor> {
